@@ -18,7 +18,7 @@ from web3.middleware import geth_poa_middleware
 
 # Configure logging for debugging and monitoring
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("SolShieldX")
+logger = logging.getLogger("AdaptX")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -37,7 +37,7 @@ intents.messages = True
 intents.message_content = True  # Required to read message content
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-class SolShieldX:
+class AdaptX:
     def __init__(self):
         # Initialize blockchain clients
         self.solana_client = AsyncClient("https://api.mainnet-beta.solana.com")
@@ -268,7 +268,7 @@ class SolShieldX:
             return {"error": str(e)}
 
 # Instantiate our main class
-solshieldx = SolShieldX()
+AdaptX = AdaptX()
 
 @bot.event
 async def on_ready():
@@ -296,7 +296,7 @@ async def on_ready():
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def post_idea(ctx, *, topic="crypto trends"):
     """Generate and send a single tweet idea on a given topic."""
-    idea = await solshieldx.generate_post_ideas(topic)
+    idea = await AdaptX.generate_post_ideas(topic)
     await ctx.send(f"📝 **Post Idea:**\n{idea}")
 
 @bot.command(name="variants")
@@ -306,7 +306,7 @@ async def tweet_variants(ctx, count: int = 3, *, topic="crypto trends"):
     Generate and send multiple tweet variants.
     Usage: !variants [count] [topic]
     """
-    variants = await solshieldx.generate_variants(n=count, topic=topic)
+    variants = await AdaptX.generate_variants(n=count, topic=topic)
     response_text = "📝 **Tweet Variants:**\n" + "\n".join(f"- {v}" for v in variants)
     await ctx.send(response_text)
 
@@ -314,35 +314,35 @@ async def tweet_variants(ctx, count: int = 3, *, topic="crypto trends"):
 @commands.cooldown(1, 30, commands.BucketType.user)
 async def ask(ctx, *, question: str):
     """Ask a crypto-related question and get an answer."""
-    answer = await solshieldx.ask_question(question)
+    answer = await AdaptX.ask_question(question)
     await ctx.send(f"❓ **Question:** {question}\n💡 **Answer:** {answer}")
 
 @bot.command(name="news")
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def crypto_news(ctx):
     """Generate a summary of the current state of the crypto market."""
-    news = await solshieldx.generate_crypto_news()
+    news = await AdaptX.generate_crypto_news()
     await ctx.send(f"📰 **Crypto News Summary:**\n{news}")
 
 @bot.command(name="quote")
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def crypto_quote(ctx):
     """Generate an inspirational crypto-related quote."""
-    quote = await solshieldx.generate_crypto_quote()
+    quote = await AdaptX.generate_crypto_quote()
     await ctx.send(f"💬 **Crypto Quote:**\n{quote}")
 
 @bot.command(name="summarize")
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def summarize(ctx, url: str):
     """Fetch and summarize the content of a given URL."""
-    summary = await solshieldx.summarize_url(url)
+    summary = await AdaptX.summarize_url(url)
     await ctx.send(f"📄 **Summary of {url}:**\n{summary}")
 
 @bot.command(name="analyze")
 @commands.cooldown(1, 30, commands.BucketType.user)
 async def analyze_tx(ctx, chain: str, tx_hash: str):
     """Analyze a blockchain transaction (use 'solana' or 'eth')."""
-    result = await solshieldx.analyze_transaction(chain, tx_hash)
+    result = await AdaptX.analyze_transaction(chain, tx_hash)
     await ctx.send(f"🔍 **Analysis Result:**\n```{json.dumps(result, indent=2)}```")
 
 @bot.command(name="ping")

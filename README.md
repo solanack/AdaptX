@@ -1,64 +1,69 @@
-# SolShieldX 🚀
+# AdaptX v1.0
 
-**SolShieldX** is an advanced AI-powered bot designed to generate high-impact social media content focused on **Solana, Ethereum, Bitcoin, XRP**, and **memecoin trading** within these ecosystems.
+## 🚀 About
+AdaptX is a cutting-edge Discord bot designed to provide:
+- AI-driven crypto insights
+- Security best practices for blockchain interactions
+- Real-time crypto news and alerts
+- Tracking of Solana memecoins and Ethereum Layer 2 projects
+- Scam detection and verified news updates
 
-### 🎯 **Goal**
-SolShieldX is built to help **crypto influencers** and traders generate viral content, aiming for **5,000,000+ Twitter impressions in under 90 days** to boost engagement and monetization.
+## 🎨 New in v1.0
+✅ **Renamed Bot to AdaptX**  
+✅ **Added Solana-Themed Gradient ASCII Art** for the bot’s startup message  
+✅ **Improved AI-generated Twitter post suggestions**  
+✅ **Optimized transaction analysis for Solana and Ethereum**  
+✅ **Enhanced documentation for better user experience**  
 
-## 🔥 **Features**
-- 🚀 **Generates engaging, influencer-style crypto tweets**
-- 💡 **Focuses on trends in Solana, Ethereum, Bitcoin, XRP, and memecoins**
-- 🧠 **Uses OpenAI to create natural, non-bot-like content**
-- 🔄 **Caching system to optimize API usage and reduce costs**
-- 🤖 **AI-powered Q&A for blockchain-related topics**
-- 📰 **Crypto news summaries & trend detection**
-- 🏆 **Designed to attract KOLs & influencers to repost content**
+## 🔥 Features
+### 🤖 AI-Powered Commands
+- `/idea [topic]` – Generate tweet ideas on crypto trends
+- `/variants [count] [topic]` – Generate multiple tweet variations
+- `/ask [question]` – AI-generated answers for blockchain questions
+- `/news` – Get the latest summarized crypto news
+- `/quote` – Get an inspirational crypto quote
+- `/summarize [url]` – Summarize blockchain-related articles
 
-## ⚙️ **Setup & Installation**
-### 1️⃣ **Clone the repository**
-```sh
-git clone https://github.com/yourusername/solshieldx.git
-cd solshieldx
-```
+### 🔍 Security & Transaction Analysis
+- `/analyze [chain] [tx_hash]` – Analyze Solana & Ethereum transactions
 
-### 2️⃣ **Install dependencies**
-Ensure you have Python installed, then run:
-```sh
-pip install -r requirements.txt
-```
+### 📈 Crypto & Market Trends
+- `/price [crypto]` – Get the current price of any crypto
+- `/viralhook [topic]` – Generate viral tweet hooks for engagement
+- `/replyhook [topic]` – Generate engaging replies for viral posts
+- `/trendwatch [category]` – Predict tomorrow’s trending crypto topics
 
-### 3️⃣ **Set up environment variables**
-Create a `.env` file and add your API keys:
-```
-DISCORD_BOT_TOKEN=your_discord_token
-OPENAI_API_KEY=your_openai_api_key
-```
+### ⚡ Miscellaneous
+- `/ping` – Simple bot test command
+- `/commands` – List all available bot commands
+- `/documentation` – Display the bot's full documentation
 
-### 4️⃣ **Run the bot**
-```sh
-python bot.py
-```
+## 📜 Installation
+1. Clone the repo:
+   ```bash
+   git clone https://github.com/YOUR_GITHUB_USERNAME/AdaptX.git
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Add your `.env` file with:
+   ```env
+   DISCORD_BOT_TOKEN=your_token_here
+   OPENAI_API_KEY=your_openai_key_here
+   INFURA_API_KEY=your_infura_key_here
+   ```
+4. Run the bot:
+   ```bash
+   python adaptx.py
+   ```
 
-## 🕹 **Usage**
-Once the bot is running, you can use the following Discord commands:
+## 🎭 Solana Gradient ASCII Art
+AdaptX now displays a **Solana-inspired color gradient ASCII Art** in the console during startup. 🌈
 
-| Command          | Description |
-|-----------------|-------------|
-| `!idea`         | Generates a high-quality crypto tweet idea |
-| `!variants`     | Generates multiple tweet variations for A/B testing |
-| `!ask`          | Ask the bot a crypto-related question |
-| `!news`         | Summarizes the latest crypto market trends |
-| `!quote`        | Generates an inspirational crypto-related quote |
-| `!summarize`    | Summarizes content from a given URL |
-| `!analyze`      | Analyzes a blockchain transaction (Solana/Ethereum) |
-| `!ping`         | Checks if the bot is online |
+## 📜 License
+MIT License
 
-## 🚀 **Contributing**
-Pull requests and suggestions are welcome! Feel free to fork this repo and make improvements.
-
-## 📜 **License**
-This project is licensed under the **MIT License**.
-
----
-🔹 **Follow along and help make it rain impressions!** 🚀
+## 💬 Need Help?
+For issues or feature requests, open an [issue on GitHub](https://github.com/YOUR_GITHUB_USERNAME/AdaptX/issues).
 

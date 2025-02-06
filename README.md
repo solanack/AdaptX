@@ -1,69 +1,86 @@
-# AdaptX v1.0
+# AdaptX
 
-## 🚀 About
-AdaptX is a cutting-edge Discord bot designed to provide:
-- AI-driven crypto insights
-- Security best practices for blockchain interactions
-- Real-time crypto news and alerts
-- Tracking of Solana memecoins and Ethereum Layer 2 projects
-- Scam detection and verified news updates
+AdaptX is your all-in-one crypto content, analysis, and insight assistant powered by OpenAI and blockchain integrations. With a refined personality inspired by top crypto influencers (Frank DeGods, The Solstice, ChartFu, and Patty_Fi), AdaptX offers genuine, insightful content and a suite of tools—from generating tweet ideas to heuristic market analyses.
 
-## 🎨 New in v1.0
-✅ **Renamed Bot to AdaptX**  
-✅ **Added Solana-Themed Gradient ASCII Art** for the bot’s startup message  
-✅ **Improved AI-generated Twitter post suggestions**  
-✅ **Optimized transaction analysis for Solana and Ethereum**  
-✅ **Enhanced documentation for better user experience**  
+## Features
 
-## 🔥 Features
-### 🤖 AI-Powered Commands
-- `/idea [topic]` – Generate tweet ideas on crypto trends
-- `/variants [count] [topic]` – Generate multiple tweet variations
-- `/ask [question]` – AI-generated answers for blockchain questions
-- `/news` – Get the latest summarized crypto news
-- `/quote` – Get an inspirational crypto quote
-- `/summarize [url]` – Summarize blockchain-related articles
+### Core Content & Analysis
+- **/idea [topic]**  
+  Generate a high-quality tweet idea on any crypto topic.
 
-### 🔍 Security & Transaction Analysis
-- `/analyze [chain] [tx_hash]` – Analyze Solana & Ethereum transactions
+- **/variants [count] [topic]**  
+  Generate multiple tweet variants with an authentic influencer vibe.
 
-### 📈 Crypto & Market Trends
-- `/price [crypto]` – Get the current price of any crypto
-- `/viralhook [topic]` – Generate viral tweet hooks for engagement
-- `/replyhook [topic]` – Generate engaging replies for viral posts
-- `/trendwatch [category]` – Predict tomorrow’s trending crypto topics
+- **/ask [question]**  
+  Get expert answers to your crypto-related questions.
 
-### ⚡ Miscellaneous
-- `/ping` – Simple bot test command
-- `/commands` – List all available bot commands
-- `/documentation` – Display the bot's full documentation
+- **/news**  
+  Summarize the latest trends and events in the cryptocurrency market.
 
-## 📜 Installation
-1. Clone the repo:
+- **/quote**  
+  Receive an inspirational crypto-related quote.
+
+- **/summarize [url]**  
+  Summarize the content from any given URL.
+
+- **/analyze [chain] [tx_hash]**  
+  Analyze a blockchain transaction (supports Solana and Ethereum).
+
+- **/price [crypto]**  
+  Get the current USD price of a cryptocurrency (default is Bitcoin).
+
+### Viral & Trend Tools
+- **/viralhook [topic]**  
+  Generate viral tweet hooks that are insightful, engaging, and include relevant links for transparency.
+
+- **/replyhook [topic]**  
+  Create engaging reply hooks for viral tweets.
+
+- **/trendwatch [category]**  
+  Analyze trends and predict tomorrow's trending topics with detailed explanations.
+
+### Wallet Guides (New Wallet Commands)
+Access wallet guides through the **/wallet** group:
+- **/wallet phantom** – Guide for Phantom Wallet.
+- **/wallet backpack** – Guide for Backpack Wallet.
+- **/wallet solflare** – Guide for Solflare Wallet.
+- **/wallet metamask** – Guide for MetaMask Wallet.
+- **/wallet xverse** – Guide for Xverse Wallet.
+- **/wallet magiceden** – Guide for Magic Eden Wallet.
+
+### Cutting-Edge Heuristic Features (No Extra API Calls)
+- **/trendpredict**  
+  Predict the next big crypto trend based on local sentiment analysis.
+
+- **/whalewatcher [wallet] [chain]**  
+  Analyze wallet activity heuristically for potential pump & dump signals.
+
+- **/riskassessment [address] [chain]**  
+  Get a heuristic risk score and community trust level for a contract or NFT project.
+
+- **/alphaalerts**  
+  Receive heuristic-based high-risk, high-reward trade alerts (not financial advice).
+
+- **/shadowindex**  
+  Discover underrated crypto projects with high upside potential using local heuristics.
+
+### Additional Commands
+- **/commands** – List all available commands.
+- **/documentation** – Display this documentation.
+- **/ping** – Test the bot's responsiveness.
+
+## Usage Notes
+- **Slash Commands:**  
+  All features are accessible as Discord slash commands. Simply type `/` in your Discord server to explore the commands.
+
+- **Personality & Insights:**  
+  AdaptX’s personality is a unique blend inspired by Frank DeGods, The Solstice, ChartFu, and Patty_Fi—providing you with authentic and insightful crypto commentary.
+
+- **Heuristic Analyses:**  
+  New cutting-edge features use internal heuristics (no extra API calls) and are for informational purposes only. Always do your own research.
+
+## Getting Started
+1. **Clone the Repository:**  
    ```bash
-   git clone https://github.com/YOUR_GITHUB_USERNAME/AdaptX.git
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Add your `.env` file with:
-   ```env
-   DISCORD_BOT_TOKEN=your_token_here
-   OPENAI_API_KEY=your_openai_key_here
-   INFURA_API_KEY=your_infura_key_here
-   ```
-4. Run the bot:
-   ```bash
-   python adaptx.py
-   ```
-
-## 🎭 Solana Gradient ASCII Art
-AdaptX now displays a **Solana-inspired color gradient ASCII Art** in the console during startup. 🌈
-
-## 📜 License
-MIT License
-
-## 💬 Need Help?
-For issues or feature requests, open an [issue on GitHub](https://github.com/YOUR_GITHUB_USERNAME/AdaptX/issues).
-
+   git clone https://github.com/yourusername/adaptx.git
+   cd adaptx

@@ -1,0 +1,6 @@
+discord.py
+python-dotenv
+solana
+web3
+openai
+tweepy

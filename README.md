@@ -1,43 +1,64 @@
-# SolShieldX Discord Bot
+# SolShieldX 🚀
 
-SolShieldX is a multi-functional Discord bot designed for blockchain security and crypto trend content generation. It leverages OpenAI's GPT-3.5-turbo for generating creative tweet ideas and variants, uses Twitter API v2 to fetch trending topics and influencer activity, and even provides basic blockchain transaction analysis via Solana and Ethereum.
+**SolShieldX** is an advanced AI-powered bot designed to generate high-impact social media content focused on **Solana, Ethereum, Bitcoin, XRP**, and **memecoin trading** within these ecosystems.
 
-## Features
+### 🎯 **Goal**
+SolShieldX is built to help **crypto influencers** and traders generate viral content, aiming for **5,000,000+ Twitter impressions in under 90 days** to boost engagement and monetization.
 
-- **Post Idea Generation:**  
-  Uses OpenAI's GPT-3.5-turbo to generate a single tweet idea about blockchain security trends.
+## 🔥 **Features**
+- 🚀 **Generates engaging, influencer-style crypto tweets**
+- 💡 **Focuses on trends in Solana, Ethereum, Bitcoin, XRP, and memecoins**
+- 🧠 **Uses OpenAI to create natural, non-bot-like content**
+- 🔄 **Caching system to optimize API usage and reduce costs**
+- 🤖 **AI-powered Q&A for blockchain-related topics**
+- 📰 **Crypto news summaries & trend detection**
+- 🏆 **Designed to attract KOLs & influencers to repost content**
 
-- **Tweet Variants:**  
-  Generates multiple tweet variants for A/B testing to help refine content strategy.
+## ⚙️ **Setup & Installation**
+### 1️⃣ **Clone the repository**
+```sh
+git clone https://github.com/yourusername/solshieldx.git
+cd solshieldx
+```
 
-- **Trending Topics:**  
-  Fetches current trending topics from Twitter related to blockchain, crypto, and web3.
+### 2️⃣ **Install dependencies**
+Ensure you have Python installed, then run:
+```sh
+pip install -r requirements.txt
+```
 
-- **Influencer Monitoring:**  
-  Retrieves the latest tweets from a predefined list of influencers.
+### 3️⃣ **Set up environment variables**
+Create a `.env` file and add your API keys:
+```
+DISCORD_BOT_TOKEN=your_discord_token
+OPENAI_API_KEY=your_openai_api_key
+```
 
-- **Blockchain Transaction Analysis:**  
-  Provides a simplified risk analysis for Solana and Ethereum transactions.
+### 4️⃣ **Run the bot**
+```sh
+python bot.py
+```
 
-- **Command Testing:**  
-  Includes a simple `!ping` command to test if the bot is running.
+## 🕹 **Usage**
+Once the bot is running, you can use the following Discord commands:
 
-## Prerequisites
+| Command          | Description |
+|-----------------|-------------|
+| `!idea`         | Generates a high-quality crypto tweet idea |
+| `!variants`     | Generates multiple tweet variations for A/B testing |
+| `!ask`          | Ask the bot a crypto-related question |
+| `!news`         | Summarizes the latest crypto market trends |
+| `!quote`        | Generates an inspirational crypto-related quote |
+| `!summarize`    | Summarizes content from a given URL |
+| `!analyze`      | Analyzes a blockchain transaction (Solana/Ethereum) |
+| `!ping`         | Checks if the bot is online |
 
-Before you begin, ensure you have the following:
+## 🚀 **Contributing**
+Pull requests and suggestions are welcome! Feel free to fork this repo and make improvements.
 
-- Python 3.9 or later installed.
-- A virtual environment set up for your project.
-- A Discord bot token, obtained from the [Discord Developer Portal](https://discord.com/developers/applications).
-- OpenAI API key (with access to GPT-3.5-turbo) from [OpenAI](https://platform.openai.com).
-- Twitter API credentials (Consumer Key, Consumer Secret, Access Token, Access Token Secret, and Bearer Token) from [Twitter Developer Portal](https://developer.twitter.com/).
-- Infura API key (for Ethereum blockchain access) from [Infura](https://infura.io/).
-- A `threat_feeds.json` file in the project root (it can be empty or contain basic data, e.g., `{"addresses": {}}`).
+## 📜 **License**
+This project is licensed under the **MIT License**.
 
-## Installation
+---
+🔹 **Follow along and help make it rain impressions!** 🚀
 
-1. **Clone the repository (if not already):**
-
-   ```bash
-   git clone https://github.com/<your-username>/<your-repo-name>.git
-   cd <your-repo-name>

@@ -4,21 +4,21 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from collections import defaultdict
 import json
-import tweepy
 import openai
 import asyncio
 import logging
+import requests
+from bs4 import BeautifulSoup
+import time
 
-# (Optional) For future scheduling features:
-# from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
+# Blockchain libraries
 from solana.rpc.async_api import AsyncClient
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 
 # Configure logging for debugging and monitoring
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("SolShieldX")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -26,11 +26,6 @@ load_dotenv()
 # Retrieve API keys and tokens from environment variables
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-TWITTER_CONSUMER_KEY = os.getenv("TWITTER_CONSUMER_KEY")
-TWITTER_CONSUMER_SECRET = os.getenv("TWITTER_CONSUMER_SECRET")
-TWITTER_ACCESS_TOKEN = os.getenv("TWITTER_ACCESS_TOKEN")
-TWITTER_ACCESS_TOKEN_SECRET = os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
-TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
 INFURA_API_KEY = os.getenv("INFURA_API_KEY")
 
 # Configure OpenAI with the API key
@@ -42,39 +37,20 @@ intents.messages = True
 intents.message_content = True  # Required to read message content
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# (Optional) Set up an AsyncIO scheduler if you later wish to schedule posts
-# scheduler = AsyncIOScheduler()
-# scheduler.start()
-
 class SolShieldX:
     def __init__(self):
-        # Initialize blockchain and social media clients
-
-        # Solana client
+        # Initialize blockchain clients
         self.solana_client = AsyncClient("https://api.mainnet-beta.solana.com")
-
-        # Ethereum client via Infura
         self.web3_eth = Web3(Web3.HTTPProvider(f"https://mainnet.infura.io/v3/{INFURA_API_KEY}"))
         self.web3_eth.middleware_onion.inject(geth_poa_middleware, layer=0)
 
-        # Twitter v2 client using the Bearer Token (for trend analysis and influencer monitoring)
-        self.twitter_client_v2 = tweepy.Client(bearer_token=TWITTER_BEARER_TOKEN)
-        
-        # (Optional) Twitter v1.1 client if needed for other features
-        self.twitter_auth = tweepy.OAuth1UserHandler(
-            TWITTER_CONSUMER_KEY,
-            TWITTER_CONSUMER_SECRET,
-            TWITTER_ACCESS_TOKEN,
-            TWITTER_ACCESS_TOKEN_SECRET
-        )
-        self.twitter_client_v1 = tweepy.API(self.twitter_auth)
-
-        # Hard-coded list of influencer usernames to monitor (replace with real Twitter handles)
-        self.influencers = ["influencer1", "influencer2", "influencer3"]
-
-        # Threat detection data (using a default dictionary)
+        # Threat detection data (if needed for future features)
         self.threat_db = defaultdict(set)
         self.load_threat_data()
+
+        # Cache for OpenAI responses to save on API calls.
+        # The cache maps a key string to a tuple: (timestamp, response)
+        self.cache = {}
 
     def load_threat_data(self):
         """Load threat data from a JSON file."""
@@ -85,123 +61,207 @@ class SolShieldX:
         except Exception as e:
             logger.warning(f"Error loading threat data: {e}")
 
-    async def generate_post_ideas(self):
+    async def cached_call(self, key: str, generator, ttl: int = 3600):
         """
-        Generate a single high-quality social media post idea using GPT-3.5-turbo.
-        Offloads the synchronous OpenAI call to a separate thread.
-        Uses dictionary indexing to access the response.
+        Checks the cache for an existing response.
+        If a valid cached value exists (within TTL seconds), returns it.
+        Otherwise, generates a new value and caches it.
         """
-        def sync_generate():
+        now = time.time()
+        if key in self.cache:
+            ts, value = self.cache[key]
+            if now - ts < ttl:
+                logger.info(f"Using cached value for key: {key}")
+                return value
+        value = await asyncio.to_thread(generator)
+        self.cache[key] = (now, value)
+        return value
+
+    async def generate_post_ideas(self, topic="crypto trends"):
+        """
+        Generate one tweet idea with a cool, humble influencer vibe.
+        Focus on trends in Solana, Ethereum, Bitcoin, XRP, and Solana memecoins/trading.
+        Cached for 1 hour.
+        """
+        key = f"idea:{topic}"
+        def generate():
             try:
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {
-                            "role": "system",
+                            "role": "system", 
                             "content": (
-                                "You are a creative social media strategist. "
-                                "Generate an engaging tweet idea about blockchain security trends that is concise and optimized for high impressions."
+                                "You are a cool, humble crypto influencer known for your authentic and engaging style. "
+                                "You cover trends in the Solana, Ethereum, Bitcoin, and XRP ecosystems, as well as the buzz around Solana memecoins and trading. "
+                                "Your tweets are natural, conversational, and resonate with the crypto community."
                             )
                         },
                         {
-                            "role": "user",
-                            "content": "Generate one tweet idea about blockchain security trends."
+                            "role": "user", 
+                            "content": f"Generate one tweet idea about {topic} that sounds genuine and could catch the attention of key influencers. Avoid overly technical or generic language."
                         }
                     ],
-                    max_tokens=100
+                    max_tokens=80
                 )
-                # Use dictionary indexing to extract the generated idea
                 idea = response["choices"][0]["message"]["content"].strip()
                 return idea
             except Exception as e:
-                return f"⚠️ Error generating ideas: {str(e)}"
-        idea = await asyncio.to_thread(sync_generate)
-        logger.info("Generated post idea successfully.")
-        return idea
+                return f"⚠️ Error generating idea: {str(e)}"
+        return await self.cached_call(key, generate, ttl=3600)
 
-    async def generate_variants(self, n=3):
+    async def generate_variants(self, n=3, topic="crypto trends"):
         """
-        Generate multiple tweet variants to allow A/B testing.
-        Offloads the synchronous OpenAI call to a separate thread.
-        Returns a list of variant strings.
+        Generate multiple tweet variants with an influencer vibe.
+        Cached for 1 hour.
         """
-        def sync_generate_variants():
+        key = f"variants:{n}:{topic}"
+        def generate():
             try:
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {
-                            "role": "system",
+                            "role": "system", 
                             "content": (
-                                "You are a creative social media strategist. "
-                                "Generate multiple concise and engaging tweet variants about blockchain security trends optimized for high engagement and impressions."
+                                "You are a cool, humble crypto influencer with a knack for crafting tweets that feel personal and engaging. "
+                                "Focus on trends in the Solana, Ethereum, Bitcoin, and XRP ecosystems, as well as the latest in Solana memecoins and trading buzz. "
+                                "Keep the tone natural and relatable."
                             )
                         },
                         {
-                            "role": "user",
-                            "content": f"Generate {n} tweet variants about blockchain security trends. Separate each variant with a newline."
+                            "role": "user", 
+                            "content": f"Generate {n} tweet variants about {topic} that would resonate with crypto enthusiasts and influencers. Each variant should sound authentic and avoid typical bot language."
                         }
                     ],
-                    max_tokens=150
+                    max_tokens=120
                 )
                 text = response["choices"][0]["message"]["content"].strip()
                 variants = [variant.strip() for variant in text.split("\n") if variant.strip()]
                 return variants
             except Exception as e:
                 return [f"⚠️ Error generating variants: {str(e)}"]
-        variants = await asyncio.to_thread(sync_generate_variants)
-        logger.info("Generated tweet variants successfully.")
-        return variants
+        return await self.cached_call(key, generate, ttl=3600)
 
-    async def find_crypto_trends(self):
-        """Fetch trending crypto topics from Twitter using v2 endpoints."""
-        try:
-            response = self.twitter_client_v2.search_recent_tweets(
-                query="blockchain OR crypto OR web3 -is:retweet",
-                max_results=10
-            )
-            if response.data:
-                tweets = [tweet.text for tweet in response.data]
-            else:
-                tweets = ["No trends found"]
-            logger.info("Fetched trending topics successfully.")
-            return tweets
-        except Exception as e:
-            logger.error(f"Twitter API error: {e}")
-            return [f"⚠️ Twitter error: {str(e)}"]
-
-    async def get_influencer_activity(self):
+    async def ask_question(self, question: str):
         """
-        Retrieve the latest tweet from each influencer in the hard-coded list.
-        Uses Twitter API v2 to get user tweets.
+        Answer a crypto-related question using OpenAI.
+        Cached for 1 hour.
         """
-        influencer_tweets = {}
-        for username in self.influencers:
+        key = f"ask:{question}"
+        def generate():
             try:
-                user_response = self.twitter_client_v2.get_user(username=username)
-                if user_response.data is None:
-                    influencer_tweets[username] = "User not found or inaccessible."
-                    continue
-                user_id = user_response.data.id
-                tweets_response = self.twitter_client_v2.get_users_tweets(user_id, max_results=1)
-                if tweets_response.data:
-                    influencer_tweets[username] = tweets_response.data[0].text
-                else:
-                    influencer_tweets[username] = "No recent tweets."
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a knowledgeable crypto expert with real-world insights."},
+                        {"role": "user", "content": question}
+                    ],
+                    max_tokens=150
+                )
+                answer = response["choices"][0]["message"]["content"].strip()
+                return answer
             except Exception as e:
-                influencer_tweets[username] = f"Error: {e}"
-        logger.info("Fetched influencer activity successfully.")
-        return influencer_tweets
+                return f"⚠️ Error answering question: {str(e)}"
+        return await self.cached_call(key, generate, ttl=3600)
+
+    async def generate_crypto_news(self):
+        """
+        Generate a concise summary of the current state of the cryptocurrency market.
+        Cached for 30 minutes.
+        """
+        key = "news"
+        def generate():
+            try:
+                prompt = (
+                    "Summarize the latest trends and events in the cryptocurrency market. Focus on major ecosystems like Solana, Ethereum, Bitcoin, XRP, "
+                    "and include commentary on memecoin trading trends. Keep it brief, impactful, and influencer-friendly."
+                )
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a savvy crypto market analyst with a finger on the pulse of trends."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=150
+                )
+                news_summary = response["choices"][0]["message"]["content"].strip()
+                return news_summary
+            except Exception as e:
+                return f"⚠️ Error generating crypto news: {str(e)}"
+        return await self.cached_call(key, generate, ttl=1800)
+
+    async def generate_crypto_quote(self):
+        """
+        Generate an inspirational crypto-related quote.
+        Cached for 30 minutes.
+        """
+        key = "quote"
+        def generate():
+            try:
+                prompt = (
+                    "Provide an inspirational crypto-related quote that is cool and humble, "
+                    "and that would resonate with influencers and the broader crypto community."
+                )
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a creative and motivational crypto influencer."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=60
+                )
+                quote = response["choices"][0]["message"]["content"].strip()
+                return quote
+            except Exception as e:
+                return f"⚠️ Error generating quote: {str(e)}"
+        return await self.cached_call(key, generate, ttl=1800)
+
+    async def summarize_url(self, url: str):
+        """
+        Fetch and summarize the content of a given URL.
+        Cached for 24 hours.
+        """
+        key = f"summarize:{url}"
+        def generate():
+            try:
+                response = requests.get(url, timeout=10)
+                if response.status_code != 200:
+                    return f"⚠️ Failed to fetch URL. Status code: {response.status_code}"
+                soup = BeautifulSoup(response.text, 'html.parser')
+                paragraphs = soup.find_all('p')
+                text = "\n".join([p.get_text() for p in paragraphs])
+                if len(text) > 2000:
+                    text = text[:2000]
+                prompt = f"Summarize the following text in a concise and engaging manner:\n\n{text}"
+                summary_response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are an expert summarizer who captures the essence of content."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=100
+                )
+                summary = summary_response["choices"][0]["message"]["content"].strip()
+                return summary
+            except Exception as e:
+                return f"⚠️ Error summarizing URL: {str(e)}"
+        return await self.cached_call(key, generate, ttl=86400)
 
     async def analyze_transaction(self, chain: str, tx_hash: str):
-        """Analyze a blockchain transaction (Solana or Ethereum)."""
+        """
+        Analyze a blockchain transaction (Solana or Ethereum) with a basic risk assessment.
+        (This function does not use OpenAI and is low cost.)
+        """
         try:
             if chain.lower() == "solana":
                 tx = await self.solana_client.get_transaction(tx_hash)
-                return {"chain": chain, "risk_score": 0.5}  # Simplified analysis
+                analysis = f"The Solana transaction {tx_hash} has been analyzed. Risk score: 0.5 (simplified analysis)."
+                return {"chain": chain, "analysis": analysis}
             elif chain.lower() == "eth":
                 tx = self.web3_eth.eth.get_transaction(tx_hash)
-                return {"chain": chain, "risk_score": 0.5}  # Simplified analysis
+                analysis = f"The Ethereum transaction {tx_hash} has been analyzed. Risk score: 0.5 (simplified analysis)."
+                return {"chain": chain, "analysis": analysis}
             return {"error": "Unsupported chain"}
         except Exception as e:
             logger.error(f"Error analyzing transaction: {e}")
@@ -212,41 +272,74 @@ solshieldx = SolShieldX()
 
 @bot.event
 async def on_ready():
-    logger.info(f'✅ Bot ready: {bot.user.name}')
-    print(f'✅ Bot ready: {bot.user.name}')
+    ready_message = "Are You Ready?: To Make It Rain Impressions."
+    ascii_art = r"""
+
+   ▄████████  ▄██████▄   ▄█          ▄████████    ▄█    █▄     ▄█     ▄████████  ▄█       ████████▄  ▀████    ▐████▀ 
+  ███    ███ ███    ███ ███         ███    ███   ███    ███   ███    ███    ███ ███       ███   ▀███   ███▌   ████▀  
+  ███    █▀  ███    ███ ███         ███    █▀    ███    ███   ███▌   ███    █▀  ███       ███    ███    ███  ▐███    
+  ███        ███    ███ ███         ███         ▄███▄▄▄▄███▄▄ ███▌  ▄███▄▄▄     ███       ███    ███    ▀███▄███▀    
+▀███████████ ███    ███ ███       ▀███████████ ▀▀███▀▀▀▀███▀  ███▌ ▀▀███▀▀▀     ███       ███    ███    ████▀██▄     
+         ███ ███    ███ ███                ███   ███    ███   ███    ███    █▄  ███       ███    ███   ▐███  ▀███    
+   ▄█    ███ ███    ███ ███▌    ▄    ▄█    ███   ███    ███   ███    ███    ███ ███▌    ▄ ███   ▄███  ▄███     ███▄  
+ ▄████████▀   ▀██████▀  █████▄▄██  ▄████████▀    ███    █▀    █▀     ██████████ █████▄▄██ ████████▀  ████       ███▄ 
+                                                                                                                   
+ 
+    """
+    logger.info(ready_message)
+    print(ready_message)
+    print(ascii_art)
+
+# ----------------- Discord Commands -----------------
 
 @bot.command(name="idea")
-async def post_idea(ctx):
-    """Generate and send a single tweet idea."""
-    idea = await solshieldx.generate_post_ideas()
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def post_idea(ctx, *, topic="crypto trends"):
+    """Generate and send a single tweet idea on a given topic."""
+    idea = await solshieldx.generate_post_ideas(topic)
     await ctx.send(f"📝 **Post Idea:**\n{idea}")
 
 @bot.command(name="variants")
-async def tweet_variants(ctx, count: int = 3):
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def tweet_variants(ctx, count: int = 3, *, topic="crypto trends"):
     """
     Generate and send multiple tweet variants.
-    Usage: !variants [count]
+    Usage: !variants [count] [topic]
     """
-    variants = await solshieldx.generate_variants(n=count)
+    variants = await solshieldx.generate_variants(n=count, topic=topic)
     response_text = "📝 **Tweet Variants:**\n" + "\n".join(f"- {v}" for v in variants)
     await ctx.send(response_text)
 
-@bot.command(name="trends")
-async def find_trends(ctx):
-    """Display trending crypto topics."""
-    trends = await solshieldx.find_crypto_trends()
-    await ctx.send("📈 **Trending Topics:**\n" + "\n\n".join(trends))
+@bot.command(name="ask")
+@commands.cooldown(1, 30, commands.BucketType.user)
+async def ask(ctx, *, question: str):
+    """Ask a crypto-related question and get an answer."""
+    answer = await solshieldx.ask_question(question)
+    await ctx.send(f"❓ **Question:** {question}\n💡 **Answer:** {answer}")
 
-@bot.command(name="influencers")
-async def influencer_activity(ctx):
-    """Display the latest tweet from each influencer."""
-    activity = await solshieldx.get_influencer_activity()
-    response_lines = ["👥 **Influencer Activity:**"]
-    for username, tweet in activity.items():
-        response_lines.append(f"**{username}**: {tweet}")
-    await ctx.send("\n".join(response_lines))
+@bot.command(name="news")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def crypto_news(ctx):
+    """Generate a summary of the current state of the crypto market."""
+    news = await solshieldx.generate_crypto_news()
+    await ctx.send(f"📰 **Crypto News Summary:**\n{news}")
+
+@bot.command(name="quote")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def crypto_quote(ctx):
+    """Generate an inspirational crypto-related quote."""
+    quote = await solshieldx.generate_crypto_quote()
+    await ctx.send(f"💬 **Crypto Quote:**\n{quote}")
+
+@bot.command(name="summarize")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def summarize(ctx, url: str):
+    """Fetch and summarize the content of a given URL."""
+    summary = await solshieldx.summarize_url(url)
+    await ctx.send(f"📄 **Summary of {url}:**\n{summary}")
 
 @bot.command(name="analyze")
+@commands.cooldown(1, 30, commands.BucketType.user)
 async def analyze_tx(ctx, chain: str, tx_hash: str):
     """Analyze a blockchain transaction (use 'solana' or 'eth')."""
     result = await solshieldx.analyze_transaction(chain, tx_hash)
@@ -256,12 +349,6 @@ async def analyze_tx(ctx, chain: str, tx_hash: str):
 async def ping(ctx):
     """Simple test command."""
     await ctx.send("Pong!")
-
-# (Optional) Example of scheduling a tweet generation every hour:
-# async def scheduled_tweet():
-#     idea = await solshieldx.generate_post_ideas()
-#     logger.info(f"Scheduled Tweet Idea: {idea}")
-# scheduler.add_job(scheduled_tweet, 'interval', hours=1)
 
 if __name__ == "__main__":
     bot.run(TOKEN)

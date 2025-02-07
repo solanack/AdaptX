@@ -13,7 +13,7 @@
 ---
 
 ## 🚀 Phase 1: Foundation (Q1 2025 – February to April)  
-**Objective**: Launch core decentralized AI and prediction systems  
+***Objective*: Launch core decentralized AI and prediction systems  
 
 ### AI & Compute Layer  
 - [ ] Deploy GPT-4 Turbo as Solana program via [Bittensor](https://bittensor.com/)  
@@ -36,10 +36,13 @@ Edit
 /predict $BONK +20% 24h
  Reputation point NFT system
  Mirror top 10 Solana whale portfolios via LSTs
-⚡ Phase 2: Expansion (Q2 2025 – May to July)
-Objective: Activate autonomous systems and community governance
+ 
+---
 
-Zero-Knowledge Tools
+##⚡ Phase 2: Expansion (Q2 2025 – May to July)
+***Objective*: Activate autonomous systems and community governance
+
+### Zero-Knowledge Tools
  Launch ZK-Reputation MVP:
 shell
 Copy
@@ -59,10 +62,11 @@ class KnowledgeMiner:
 Hyperstructure
  Launch NEV Pool with SPL governance
  Deploy first immutable feature: Price Oracle V1
-🌌 Phase 3: Maturity (Q3 2025 – August to October)
-Objective: Achieve full decentralization and cross-chain support
+ 
+## 🌌 Phase 3: Maturity (Q3 2025 – August to October)
+***Objective*: Achieve full decentralization and cross-chain support
 
-Advanced Features
+### Advanced Features
  Implement full zkML pipeline
  On-chain DAO governance for protocol upgrades
  Cross-chain support for Ethereum, Bitcoin via Wormhole
@@ -71,10 +75,11 @@ Revenue Model
 cNFT royalties (5% perpetual fee)
 Prediction market fees (0.1% per trade)
 Data oracle subscriptions
-🎯 Phase 4: Self-Sustainability (Q4 2025 – November to January 2026)
-Objective: Achieve AI-driven decision-making and full autonomy
 
-AI Governance
+## 🎯 Phase 4: Self-Sustainability (Q4 2025 – November to January 2026)
+***Objective*: Achieve AI-driven decision-making and full autonomy
+
+### AI Governance
  Launch AI-managed treasury for autonomous fund allocation
  Implement on-chain voting AI agent
 Security & Resilience

@@ -12,6 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random  # NEW: For heuristic features
+import datetime  # For roadmap date
 
 # Blockchain libraries
 from solana.rpc.async_api import AsyncClient
@@ -38,7 +39,7 @@ intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True  # Required to read message content
 
-# Create the bot using commands.Bot (this supports both legacy and app commands)
+# Create the bot using commands.Bot (supports both legacy and app commands)
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 ###############################################################################
@@ -137,28 +138,31 @@ class AdaptX:
     async def generate_post_ideas(self, topic="crypto trends"):
         """
         Generate one tweet idea with a unique influencer vibe.
+        If the topic involves Solana memecoins, include detailed research on specific coins.
         Cached for 1 hour.
         """
         key = f"idea:{topic}"
         def generate():
             try:
+                prompt_topic = topic
+                if "memecoin" in topic.lower() and "solana" in topic.lower():
+                    prompt_topic += " (Include detailed analysis of specific Solana memecoins like $BONK, $SAMO, etc.)"
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {
                             "role": "system", 
                             "content": (
-                                "You are AdaptX, a savvy and authentic crypto influencer inspired by the styles of Frank DeGods, "
-                                "The Solstice, ChartFu, and Patty_Fi. Your tweets are insightful, engaging, and always add value to the crypto community. "
-                                "Generate a thoughtful tweet idea about the topic provided."
+                                "You are AdaptX, an unapologetic, unfiltered crypto influencer. You deliver hard truths and call out the herd with brutal honesty. "
+                                "When discussing topics like Solana memecoins, provide deep, research–driven details."
                             )
                         },
                         {
                             "role": "user", 
-                            "content": f"Generate one tweet idea about {topic} that is genuine, informative, and engaging."
+                            "content": f"Generate one tweet idea about {prompt_topic} that is brutally honest, insightful, and packed with specific details."
                         }
                     ],
-                    max_tokens=80
+                    max_tokens=100
                 )
                 idea = response["choices"][0]["message"]["content"].strip()
                 return idea
@@ -174,22 +178,25 @@ class AdaptX:
         key = f"variants:{n}:{topic}"
         def generate():
             try:
+                prompt_topic = topic
+                if "memecoin" in topic.lower() and "solana" in topic.lower():
+                    prompt_topic += " (Focus on specific Solana memecoins with detailed analysis)"
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {
                             "role": "system", 
                             "content": (
-                                "You are AdaptX, an authentic crypto influencer blending the styles of Frank DeGods, The Solstice, ChartFu, and Patty_Fi. "
-                                "Craft tweet variants that are insightful, personal, and engaging, avoiding generic bot language."
+                                "You are AdaptX, an unfiltered crypto influencer known for incisive commentary and brutal honesty. "
+                                "Craft tweet variants that are edgy, detailed, and resonate with crypto enthusiasts."
                             )
                         },
                         {
                             "role": "user", 
-                            "content": f"Generate {n} tweet variants about {topic} that resonate with crypto enthusiasts."
+                            "content": f"Generate {n} tweet variants about {prompt_topic}."
                         }
                     ],
-                    max_tokens=120
+                    max_tokens=150
                 )
                 text = response["choices"][0]["message"]["content"].strip()
                 variants = [variant.strip() for variant in text.split("\n") if variant.strip()]
@@ -210,8 +217,8 @@ class AdaptX:
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "system", "content": (
-                            "You are AdaptX, a crypto influencer whose insights are influenced by Frank DeGods, The Solstice, ChartFu, and Patty_Fi. "
-                            "Answer the question with clarity, depth, and authenticity."
+                            "You are AdaptX, a crypto analyst with a no-nonsense, unfiltered style. "
+                            "Answer questions with raw, honest insight and do not sugarcoat the truth."
                         )},
                         {"role": "user", "content": question}
                     ],
@@ -233,14 +240,13 @@ class AdaptX:
             try:
                 prompt = (
                     "Summarize the latest trends and events in the cryptocurrency market. Focus on major ecosystems like Solana, Ethereum, Bitcoin, XRP, "
-                    "and include commentary on memecoin trading trends. Keep it brief, insightful, and influencer-friendly."
+                    "and include commentary on memecoin trading trends. Be brutally honest about the hype and herd mentality."
                 )
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "system", "content": (
-                            "You are AdaptX, a crypto market analyst with a distinctive influencer style inspired by Frank DeGods, The Solstice, ChartFu, and Patty_Fi. "
-                            "Provide a clear and engaging summary of current market trends."
+                            "You are AdaptX, a no-filter crypto market analyst. Deliver a clear, edgy summary of current market trends with an emphasis on raw truth."
                         )},
                         {"role": "user", "content": prompt}
                     ],
@@ -261,15 +267,14 @@ class AdaptX:
         def generate():
             try:
                 prompt = (
-                    "Provide an inspirational crypto-related quote that is authentic and engaging, "
-                    "inspired by the tones of top crypto influencers."
+                    "Provide a brutally honest, inspirational crypto-related quote that cuts through the noise and challenges conventional wisdom."
                 )
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "system", "content": (
-                            "You are AdaptX, a creative crypto influencer blending the best of Frank DeGods, The Solstice, ChartFu, and Patty_Fi. "
-                            "Deliver a motivational crypto quote."
+                            "You are AdaptX, a fearless crypto influencer known for dropping truth bombs and unfiltered insights. "
+                            "Deliver a quote that inspires while calling out the herd."
                         )},
                         {"role": "user", "content": prompt}
                     ],
@@ -331,6 +336,34 @@ class AdaptX:
             logger.error(f"Error analyzing transaction: {e}")
             return {"error": str(e)}
 
+    async def research_memecoin(self, coin: str):
+        """
+        Research a specific Solana memecoin and provide detailed insights.
+        Cached for 1 hour.
+        """
+        key = f"memereport:{coin}"
+        def generate():
+            try:
+                prompt = (
+                    f"Research the Solana memecoin {coin}. Provide detailed insights on its tokenomics, community sentiment, historical performance, "
+                    "viral potential, and inherent risks. Be brutally honest and factual."
+                )
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": (
+                            "You are AdaptX, a hardcore crypto researcher with a no-nonsense approach. Deliver data-driven insights with raw honesty."
+                        )},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=200
+                )
+                report = response["choices"][0]["message"]["content"].strip()
+                return report
+            except Exception as e:
+                return f"⚠️ Error researching memecoin {coin}: {str(e)}"
+        return await self.cached_call(key, generate, ttl=3600)
+
 ###############################################################################
 #                           New Feature: Crypto Price                          #
 ###############################################################################
@@ -358,15 +391,15 @@ async def get_crypto_price(crypto: str = "bitcoin") -> str:
 async def viralhook_command(interaction: discord.Interaction, topic: str):
     prompt = (
         f"Generate three viral tweet hooks for the topic '{topic}', optimized for maximum engagement and retweets. "
-        "Each hook should be insightful—not just clickbait—provide value, and include relevant links for transparency when possible."
+        "Each hook should be edgy, insightful, and transparent with relevant links when possible."
     )
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": (
-                    "You are AdaptX, a crypto influencer with a unique blend of authenticity and insight drawn from Frank DeGods, "
-                    "The Solstice, ChartFu, and Patty_Fi. Generate tweet hooks that are both engaging and informative."
+                    "You are AdaptX, a crypto influencer with a unique blend of unfiltered honesty and razor–sharp insight. "
+                    "Generate tweet hooks that cut through the hype."
                 )},
                 {"role": "user", "content": prompt}
             ],
@@ -381,15 +414,15 @@ async def viralhook_command(interaction: discord.Interaction, topic: str):
 @bot.tree.command(name="replyhook", description="Generate engaging reply hooks for viral tweets.")
 async def replyhook_command(interaction: discord.Interaction, topic: str):
     prompt = (
-        f"Generate three engaging reply hooks for a viral tweet about '{topic}', designed to capture attention, add value, and increase engagement. "
-        "Each reply should be concise, insightful, and may include relevant sources if applicable."
+        f"Generate three engaging reply hooks for a viral tweet about '{topic}', designed to capture attention, add value, and boost engagement. "
+        "Each reply should be concise, edgy, and may include relevant sources."
     )
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": (
-                    "You are AdaptX, an influencer whose replies are informed by the best practices of Frank DeGods, The Solstice, ChartFu, and Patty_Fi. "
+                    "You are AdaptX, a crypto influencer whose replies are as unfiltered as they are insightful. "
                     "Generate thoughtful and engaging reply hooks."
                 )},
                 {"role": "user", "content": prompt}
@@ -406,15 +439,14 @@ async def replyhook_command(interaction: discord.Interaction, topic: str):
 async def trendwatch_command(interaction: discord.Interaction, category: str = "crypto"):
     prompt = (
         f"Analyze current crypto news and social media trends for the category '{category}'. "
-        "Provide three potential topics or events that are likely to trend tomorrow, with brief explanations, using your unique influencer insight."
+        "Provide three potential topics or events that are likely to trend tomorrow with brief, edgy explanations."
     )
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": (
-                    "You are AdaptX, a market analyst with a distinctive influencer personality inspired by Frank DeGods, The Solstice, ChartFu, and Patty_Fi. "
-                    "Provide clear, engaging trend predictions."
+                    "You are AdaptX, a market analyst with no filter. Analyze trends and predict what will actually go viral without sugarcoating."
                 )},
                 {"role": "user", "content": prompt}
             ],
@@ -483,8 +515,8 @@ async def xverse_wallet(interaction: discord.Interaction):
     guide = (
         "**Xverse Wallet Guide**\n\n"
         "**Installation:** Download Xverse Wallet from the official site or app store (check for compatibility with your device).\n"
-        "**Security Best Practices:** Keep your recovery phrase offline, use strong passwords, and enable any additional security features.\n"
-        "**Usage:** Designed for managing digital assets, with support for various chains (consult official docs for specifics).\n"
+        "**Security Best Practices:** Keep your recovery phrase offline, use strong passwords, and enable additional security features.\n"
+        "**Usage:** Designed for managing digital assets across various chains. Consult official docs for specifics.\n"
         "**Official Links:** [Xverse Website](https://www.xverse.app/) | [Xverse Support](https://support.xverse.app/)"
     )
     await interaction.response.send_message(guide)
@@ -494,7 +526,7 @@ async def magiceden_wallet(interaction: discord.Interaction):
     guide = (
         "**Magic Eden Wallet Guide**\n\n"
         "**Installation:** Visit [Magic Eden](https://magiceden.io/) to access their platform or mobile options.\n"
-        "**Security Best Practices:** Follow on-platform security tips and ensure your account details are kept private.\n"
+        "**Security Best Practices:** Follow on-platform security tips and keep your account details private.\n"
         "**Usage:** While primarily an NFT marketplace on Solana, Magic Eden offers wallet-like features for managing digital assets.\n"
         "**Official Links:** [Magic Eden Website](https://magiceden.io/) | [Magic Eden Help](https://help.magiceden.io/)"
     )
@@ -524,7 +556,7 @@ async def trendpredict_command(interaction: discord.Interaction):
 async def whalewatcher_command(interaction: discord.Interaction, wallet: str, chain: str = "solana"):
     risk = random.choice(["High", "Medium", "Low"])
     analysis = (
-        f"Analysis for wallet `{wallet}` on {chain.title()}:\n"
+        f"Analysis for wallet {wallet} on {chain.title()}:\n"
         f"Potential risk level: **{risk}**\n"
         "Note: This analysis is heuristic-based and for informational purposes only."
     )
@@ -536,7 +568,7 @@ async def riskassessment_command(interaction: discord.Interaction, address: str,
     risk_score = round(random.uniform(0, 1), 2)
     trust_level = random.choice(["High", "Medium", "Low"])
     response_text = (
-        f"Risk Assessment for address `{address}` on {chain.upper()}:\n"
+        f"Risk Assessment for address {address} on {chain.upper()}:\n"
         f"Risk Score: **{risk_score}** (0.0 - 1.0 scale)\n"
         f"Community Trust Level: **{trust_level}**\n"
         "Disclaimer: This is a heuristic evaluation and not financial advice."
@@ -573,6 +605,37 @@ async def shadowindex_command(interaction: discord.Interaction):
     await interaction.response.send_message(response_text)
 
 ###############################################################################
+#                           New Research Command                              #
+###############################################################################
+@bot.tree.command(name="memereport", description="Get an in-depth research report on a specific Solana memecoin.")
+async def memereport_command(interaction: discord.Interaction, coin: str):
+    report = await adaptx.research_memecoin(coin)
+    await interaction.response.send_message(f"**Memecoin Report for {coin}:**\n{report}")
+
+###############################################################################
+#                           New Project Roadmap Command                       #
+###############################################################################
+@bot.tree.command(name="roadmap", description="Show the project roadmap for the next year.")
+async def roadmap_command(interaction: discord.Interaction):
+    today = datetime.date.today()
+    roadmap = f"**AdaptX Roadmap (Starting {today.isoformat()}):**\n\n"
+    roadmap += "**Q1:**\n"
+    roadmap += "- Finalize code refactoring and upgrade AI personality to be unfiltered and brutally honest.\n"
+    roadmap += "- Enhance /idea command to include detailed Solana memecoin research.\n"
+    roadmap += "- Introduce new /memereport command for in-depth memecoin analysis.\n\n"
+    roadmap += "**Q2:**\n"
+    roadmap += "- Implement advanced heuristic tools for trend prediction and risk assessment.\n"
+    roadmap += "- Optimize caching mechanisms and overall performance.\n"
+    roadmap += "- Gather user feedback for further improvements.\n\n"
+    roadmap += "**Q3:**\n"
+    roadmap += "- Roll out beta testing for new features with select crypto communities.\n"
+    roadmap += "- Expand wallet integration guides and enhance educational content.\n\n"
+    roadmap += "**Q4:**\n"
+    roadmap += "- Launch AdaptX v2.0 with all major enhancements.\n"
+    roadmap += "- Conduct security audits, performance reviews, and plan future roadmap phases.\n"
+    await interaction.response.send_message(roadmap)
+
+###############################################################################
 #                           Bot Event and Commands                            #
 ###############################################################################
 @bot.event
@@ -582,7 +645,7 @@ async def on_ready():
         logger.info("Application commands synchronized.")
     except Exception as e:
         logger.error(f"Error syncing commands: {e}")
-    ready_message = "AdaptX: by, Solana_CK"
+    ready_message = "AdaptX v2.0: by, Solana_CK"
     
     # Define the ASCII art
     ascii_art = r"""
@@ -605,12 +668,12 @@ _/    _/    _/_/_/    _/_/_/  _/_/_/        _/_/  _/      _/
 
 @bot.tree.command(name="idea", description="Generate and send a single tweet idea on a given topic.")
 async def idea_command(interaction: discord.Interaction, topic: str = "crypto trends"):
-    idea = await AdaptX.generate_post_ideas(topic)
+    idea = await adaptx.generate_post_ideas(topic)
     await interaction.response.send_message(f"📝 **Post Idea:**\n{idea}")
 
 @bot.tree.command(name="variants", description="Generate multiple tweet variants for crypto topics.")
 async def variants_command(interaction: discord.Interaction, count: int = 3, topic: str = "crypto trends"):
-    variants = await AdaptX.generate_variants(n=count, topic=topic)
+    variants = await adaptx.generate_variants(n=count, topic=topic)
     response_text = "📝 **Tweet Variants:**\n" + "\n".join(f"- {v}" for v in variants)
     await interaction.response.send_message(response_text)
 
@@ -627,27 +690,27 @@ async def topic_autocomplete(interaction: discord.Interaction, current: str):
 
 @bot.tree.command(name="ask", description="Ask a crypto-related question and get an answer.")
 async def ask_command(interaction: discord.Interaction, question: str):
-    answer = await AdaptX.ask_question(question)
+    answer = await adaptx.ask_question(question)
     await interaction.response.send_message(f"❓ **Question:** {question}\n💡 **Answer:** {answer}")
 
 @bot.tree.command(name="news", description="Generate a summary of the current state of the crypto market.")
 async def news_command(interaction: discord.Interaction):
-    news = await AdaptX.generate_crypto_news()
+    news = await adaptx.generate_crypto_news()
     await interaction.response.send_message(f"📰 **Crypto News Summary:**\n{news}")
 
 @bot.tree.command(name="quote", description="Generate an inspirational crypto-related quote.")
 async def quote_command(interaction: discord.Interaction):
-    quote = await AdaptX.generate_crypto_quote()
+    quote = await adaptx.generate_crypto_quote()
     await interaction.response.send_message(f"💬 **Crypto Quote:**\n{quote}")
 
 @bot.tree.command(name="summarize", description="Fetch and summarize the content of a given URL.")
 async def summarize_command(interaction: discord.Interaction, url: str):
-    summary = await AdaptX.summarize_url(url)
+    summary = await adaptx.summarize_url(url)
     await interaction.response.send_message(f"📄 **Summary of {url}:**\n{summary}")
 
 @bot.tree.command(name="analyze", description="Analyze a blockchain transaction (use 'solana' or 'eth').")
 async def analyze_command(interaction: discord.Interaction, chain: str, tx_hash: str):
-    result = await AdaptX.analyze_transaction(chain, tx_hash)
+    result = await adaptx.analyze_transaction(chain, tx_hash)
     await interaction.response.send_message(f"🔍 **Analysis Result:**\n```json\n{json.dumps(result, indent=2)}\n```")
 
 @bot.tree.command(name="ping", description="Simple test command.")
@@ -668,58 +731,47 @@ async def commands_list(interaction: discord.Interaction):
 @bot.tree.command(name="documentation", description="Show the bot's documentation.")
 async def documentation_command(interaction: discord.Interaction):
     doc = (
-        "**AdaptX v1.04 Documentation**\n\n"
-        "Welcome to AdaptX – your all-in-one crypto content and analysis assistant!\n\n"
+        "**AdaptX v2.0 Documentation**\n\n"
+        "Welcome to AdaptX – your unapologetic, all-in-one crypto content and analysis assistant!\n\n"
         "**Core Features:**\n"
-        "• **/idea [topic]** – Generate a high-quality tweet idea about a given crypto topic.\n"
-        "• **/variants [count] [topic]** – Generate multiple tweet variants with an authentic influencer vibe.\n"
-        "• **/ask [question]** – Ask any crypto-related question and get a knowledgeable answer.\n"
-        "• **/news** – Summarize the latest trends in the cryptocurrency market.\n"
-        "• **/quote** – Generate an inspirational crypto quote.\n"
-        "• **/summarize [url]** – Summarize content from the specified URL.\n"
-        "• **/analyze [chain] [tx_hash]** – Analyze a blockchain transaction (Solana or Ethereum).\n"
-        "• **/ping** – Test the bot's responsiveness.\n"
+        "• **/idea [topic]** – Generate a brutally honest tweet idea about a given crypto topic. If discussing memecoins on Solana, expect detailed analysis.\n"
+        "• **/variants [count] [topic]** – Generate multiple edgy tweet variants with raw insights.\n"
+        "• **/ask [question]** – Get a no–holds–barred answer to your crypto questions.\n"
+        "• **/news** – Receive a candid summary of the current state of the crypto market.\n"
+        "• **/quote** – Get an unfiltered, inspirational crypto quote.\n"
+        "• **/summarize [url]** – Summarize content from the specified URL in an engaging manner.\n"
+        "• **/analyze [chain] [tx_hash]** – Analyze a blockchain transaction (Solana or Ethereum) with a basic risk assessment.\n"
         "• **/price [crypto]** – Get the current USD price for a cryptocurrency (default: Bitcoin).\n\n"
         "**Viral & Trend Tools:**\n"
-        "• **/viralhook [topic]** – Generate viral tweet hooks that are insightful and transparent.\n"
+        "• **/viralhook [topic]** – Generate high-impact, viral tweet hooks that are transparent and insightful.\n"
         "• **/replyhook [topic]** – Generate engaging reply hooks for viral tweets.\n"
-        "• **/trendwatch [category]** – Analyze trends and predict tomorrow's trending crypto topics using AI.\n\n"
-        "**Wallet Guides (New Wallet Commands):**\n"
-        "Use the **/wallet** group to access guides for popular wallets:\n"
-        "• **/wallet phantom** – Phantom Wallet guide.\n"
-        "• **/wallet backpack** – Backpack Wallet guide.\n"
-        "• **/wallet solflare** – Solflare Wallet guide.\n"
-        "• **/wallet metamask** – MetaMask Wallet guide.\n"
-        "• **/wallet xverse** – Xverse Wallet guide.\n"
-        "• **/wallet magiceden** – Magic Eden Wallet guide.\n\n"
-        "**Cutting-Edge Heuristic Features:**\n"
+        "• **/trendwatch [category]** – Predict tomorrow's trending crypto topics with raw, edgy insights.\n\n"
+        "**Wallet Guides:**\n"
+        "Use the **/wallet** group to access guides for popular wallets (Phantom, Backpack, Solflare, MetaMask, Xverse, Magic Eden).\n\n"
+        "**Heuristic & Research Features:**\n"
         "• **/trendpredict** – Predict the next big crypto trend based on local sentiment analysis.\n"
         "• **/whalewatcher [wallet] [chain]** – Analyze wallet activity for potential pump & dump plays.\n"
         "• **/riskassessment [address] [chain]** – Get a heuristic risk assessment for a contract or NFT project.\n"
-        "• **/alphaalerts** – Receive a heuristic-based smart trade signal (high-risk, high-reward opportunity).\n"
-        "• **/shadowindex** – Discover an underrated crypto project with high upside potential.\n\n"
-        "**Usage Notes:**\n"
-        "• All commands are available as Discord slash commands. Just type `/` in your server to see the options.\n"
-        "• Our AI personality is inspired by top crypto influencers (Frank DeGods, The Solstice, ChartFu, Patty_Fi) for authenticity and insight.\n"
-        "• The new heuristic features provide local analysis without extra API calls; they are for informational purposes only.\n\n"
-        "Thank you for using AdaptX!"
+        "• **/alphaalerts** – Receive a high–risk, high–reward trade signal alert.\n"
+        "• **/shadowindex** – Discover underrated crypto projects with high upside potential.\n"
+        "• **/memereport [coin]** – Get an in-depth research report on a specific Solana memecoin.\n\n"
+        "**New Features:**\n"
+        "• **/roadmap** – View the project roadmap for the next year with detailed milestones.\n\n"
+        "Thank you for using AdaptX! Embrace the truth and do your own research!"
     )
-    await interaction.response.send_message(doc)
-
-@bot.tree.command(name="price", description="Get the current USD price of a cryptocurrency (default: Bitcoin).")
-async def price_command(interaction: discord.Interaction, crypto: str = "bitcoin"):
-    price_info = await get_crypto_price(crypto)
-    await interaction.response.send_message(price_info)
-
-###############################################################################
-#                                New Cutting-Edge Commands End                #
-###############################################################################
+    # Split the documentation text into chunks of 2000 characters or less.
+    parts = [doc[i:i+2000] for i in range(0, len(doc), 2000)]
+    # Send the first part as the initial response.
+    await interaction.response.send_message(parts[0])
+    # Follow up with any additional parts.
+    for part in parts[1:]:
+        await interaction.followup.send(part)
 
 ###############################################################################
 #                                Instantiate Core                             #
 ###############################################################################
 # Instantiate our main class for AdaptX functionality.
-AdaptX = AdaptX()
+adaptx = AdaptX()
 
 if __name__ == "__main__":
     bot.run(TOKEN)

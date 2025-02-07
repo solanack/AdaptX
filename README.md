@@ -1,86 +1,68 @@
-# AdaptX
+# AdaptX v2.0 - Crypto Content & Analysis Discord Bot
 
-AdaptX is your all-in-one crypto content, analysis, and insight assistant powered by OpenAI and blockchain integrations. With a refined personality inspired by top crypto influencers (Frank DeGods, The Solstice, ChartFu, and Patty_Fi), AdaptX offers genuine, insightful content and a suite of tools—from generating tweet ideas to heuristic market analyses.
+**AdaptX** is an all-in-one crypto content and analysis Discord bot designed to deliver unapologetic, unfiltered insights into the world of cryptocurrency. Leveraging advanced AI-driven features alongside live blockchain data, AdaptX helps you generate tweet ideas, analyze transactions, fetch crypto prices, and much more—all with a raw, brutally honest style.
+
+---
 
 ## Features
 
-### Core Content & Analysis
-- **/idea [topic]**  
-  Generate a high-quality tweet idea on any crypto topic.
+- **Unfiltered AI Insights:**  
+  Generate brutally honest tweet ideas and crypto analyses with an edgy, no–holds–barred personality.
 
-- **/variants [count] [topic]**  
-  Generate multiple tweet variants with an authentic influencer vibe.
+- **Memecoin Research:**  
+  Receive detailed reports on specific Solana memecoins (e.g., `$BONK`, `$SAMO`, etc.) with the `/memereport` command.
 
-- **/ask [question]**  
-  Get expert answers to your crypto-related questions.
+- **Crypto News & Quotes:**  
+  Stay updated on market trends using `/news` and get inspiring (yet raw) crypto quotes with `/quote`.
 
-- **/news**  
-  Summarize the latest trends and events in the cryptocurrency market.
+- **Blockchain Analysis:**  
+  Analyze transactions on Solana or Ethereum using the `/analyze` command for a quick risk assessment.
 
-- **/quote**  
-  Receive an inspirational crypto-related quote.
+- **Price Tracking:**  
+  Check current prices of various cryptocurrencies in USD via the `/price` command.
 
-- **/summarize [url]**  
-  Summarize the content from any given URL.
+- **Viral & Trend Tools:**  
+  - Generate viral tweet hooks with `/viralhook`  
+  - Craft engaging reply hooks using `/replyhook`  
+  - Predict trending crypto topics with `/trendwatch`
 
-- **/analyze [chain] [tx_hash]**  
-  Analyze a blockchain transaction (supports Solana and Ethereum).
+- **Wallet Guides:**  
+  Step-by-step guides for popular crypto wallets (Phantom, Backpack, Solflare, MetaMask, Xverse, Magic Eden) are available in the `/wallet` group.
 
-- **/price [crypto]**  
-  Get the current USD price of a cryptocurrency (default is Bitcoin).
+- **Heuristic Analysis:**  
+  Tools like `/trendpredict`, `/whalewatcher`, `/riskassessment`, `/alphaalerts`, and `/shadowindex` provide local heuristic insights on market sentiment and potential opportunities.
 
-### Viral & Trend Tools
-- **/viralhook [topic]**  
-  Generate viral tweet hooks that are insightful, engaging, and include relevant links for transparency.
+- **Project Roadmap:**  
+  Use the `/roadmap` command to view a detailed 1-year roadmap outlining upcoming features and milestones.
 
-- **/replyhook [topic]**  
-  Create engaging reply hooks for viral tweets.
+- **Extensive Documentation:**  
+  Access full documentation of all features using the `/documentation` command (now optimized to handle long responses).
 
-- **/trendwatch [category]**  
-  Analyze trends and predict tomorrow's trending topics with detailed explanations.
+---
 
-### Wallet Guides (New Wallet Commands)
-Access wallet guides through the **/wallet** group:
-- **/wallet phantom** – Guide for Phantom Wallet.
-- **/wallet backpack** – Guide for Backpack Wallet.
-- **/wallet solflare** – Guide for Solflare Wallet.
-- **/wallet metamask** – Guide for MetaMask Wallet.
-- **/wallet xverse** – Guide for Xverse Wallet.
-- **/wallet magiceden** – Guide for Magic Eden Wallet.
+## Setup Instructions
 
-### Cutting-Edge Heuristic Features (No Extra API Calls)
-- **/trendpredict**  
-  Predict the next big crypto trend based on local sentiment analysis.
+### Prerequisites
 
-- **/whalewatcher [wallet] [chain]**  
-  Analyze wallet activity heuristically for potential pump & dump signals.
+- **Python 3.8+**  
+- Required Python packages (listed in `requirements.txt`):
+  - `discord.py`
+  - `python-dotenv`
+  - `openai`
+  - `requests`
+  - `beautifulsoup4`
+  - `solana`
+  - `web3`
+- Valid API keys for:
+  - [Discord Bot](https://discord.com/developers/applications)
+  - [OpenAI](https://openai.com/api/)
+  - [Infura](https://infura.io/)
 
-- **/riskassessment [address] [chain]**  
-  Get a heuristic risk score and community trust level for a contract or NFT project.
+### Environment Variables
 
-- **/alphaalerts**  
-  Receive heuristic-based high-risk, high-reward trade alerts (not financial advice).
+Create a `.env` file in the project’s root directory with the following content:
 
-- **/shadowindex**  
-  Discover underrated crypto projects with high upside potential using local heuristics.
-
-### Additional Commands
-- **/commands** – List all available commands.
-- **/documentation** – Display this documentation.
-- **/ping** – Test the bot's responsiveness.
-
-## Usage Notes
-- **Slash Commands:**  
-  All features are accessible as Discord slash commands. Simply type `/` in your Discord server to explore the commands.
-
-- **Personality & Insights:**  
-  AdaptX’s personality is a unique blend inspired by Frank DeGods, The Solstice, ChartFu, and Patty_Fi—providing you with authentic and insightful crypto commentary.
-
-- **Heuristic Analyses:**  
-  New cutting-edge features use internal heuristics (no extra API calls) and are for informational purposes only. Always do your own research.
-
-## Getting Started
-1. **Clone the Repository:**  
-   ```bash
-   git clone https://github.com/yourusername/adaptx.git
-   cd adaptx
+```env
+DISCORD_BOT_TOKEN=your_discord_bot_token
+OPENAI_API_KEY=your_openai_api_key
+INFURA_API_KEY=your_infura_api_key

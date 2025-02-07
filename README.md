@@ -66,3 +66,6 @@ Create a `.env` file in the project’s root directory with the following conten
 DISCORD_BOT_TOKEN=your_discord_bot_token
 OPENAI_API_KEY=your_openai_api_key
 INFURA_API_KEY=your_infura_api_key
+
+## Roadmap
+View our project roadmap [here](ROADMAP.md).

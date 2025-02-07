@@ -37,7 +37,7 @@ Edit
  Reputation point NFT system
  Mirror top 10 Solana whale portfolios via LSTs
 
-##⚡ Phase 2: Expansion (Q2 2025 – May to July)
+## ⚡ Phase 2: Expansion (Q2 2025 – May to July)
 ***Objective*: Activate autonomous systems and community governance
 
 ### Zero-Knowledge Tools

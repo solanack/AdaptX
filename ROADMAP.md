@@ -13,10 +13,10 @@
 ---
 
 ## 🚀 Phase 1: Foundation (Q1 2025 – February to April)  
-***Objective*: Launch core decentralized AI and prediction systems  
+**Objective:** Launch core decentralized AI and prediction systems  
 
 ### AI & Compute Layer  
-- [ ] Deploy GPT-4 Turbo as Solana program via [Bittensor](https://bittensor.com/)  
+- [ ] Deploy GPT-4 Turbo as a Solana program via [Bittensor](https://bittensor.com/)  
 - [ ] Implement SOL-paid premium queries:  
   ```python
   # Decentralized AI call
@@ -27,79 +27,68 @@
           payment=0.001 * 1e9  # 0.001 SOL
       )
       return response.data
- Integrate Stable Diffusion XL for /memegen command (cNFT minting)
-Predictive Markets
- Build MEV-resistant prediction system with Jito-Solana:
-shell
-Copy
-Edit
-/predict $BONK +20% 24h
- Reputation point NFT system
+ Integrate Stable Diffusion XL for the /memegen command (cNFT minting)
+ Build MEV-resistant prediction system with Jito-Solana
+Example command: /predict $BONK +20% 24h
+ Develop a Reputation Point NFT system
  Mirror top 10 Solana whale portfolios via LSTs
 
-## ⚡ Phase 2: Expansion (Q2 2025 – May to July)
-***Objective*: Activate autonomous systems and community governance
+## 🚀 Phase 2: Expansion (Q2 2025 – May to July)
+**Objective:** Activate autonomous systems and community governance
 
-### Zero-Knowledge Tools
- Launch ZK-Reputation MVP:
-shell
-Copy
-Edit
-/zkproof @user
- Dark pool sentiment analysis using zkML
+Zero-Knowledge Tools
+ Launch ZK-Reputation MVP
+Example: /zkproof @user
+ Implement dark pool sentiment analysis using zkML
 Content Engine
- Deploy autonomous researcher:
+ Deploy an autonomous researcher:
 python
 Copy
-Edit
 class KnowledgeMiner:
     async def scrape_sources(self):
         # Real-time data from 100+ feeds
         return await SyndicaAPI.get_alpha()
- Mint 10k cNFT meme dataset on Solana
+ Mint a 10k cNFT meme dataset on Solana
 Hyperstructure
  Launch NEV Pool with SPL governance
  Deploy first immutable feature: Price Oracle V1
- 
-## 🌌 Phase 3: Maturity (Q3 2025 – August to October)
-***Objective*: Achieve full decentralization and cross-chain support
+## 🚀 Phase 3: Maturity (Q3 2025 – August to October)
+**Objective:** Achieve full decentralization and cross-chain support
 
-### Advanced Features
- Implement full zkML pipeline
- On-chain DAO governance for protocol upgrades
- Cross-chain support for Ethereum, Bitcoin via Wormhole
+Advanced Features
+ Implement a full zkML pipeline
+ Enable on-chain DAO governance for protocol upgrades
+ Add cross-chain support for Ethereum and Bitcoin via Wormhole
 Revenue Model
- Activate 3-tier monetization:
+ Activate a 3-tier monetization strategy:
 cNFT royalties (5% perpetual fee)
 Prediction market fees (0.1% per trade)
 Data oracle subscriptions
+## 🚀 Phase 4: Self-Sustainability (Q4 2025 – November to January 2026)
+**Objective:** Achieve AI-driven decision-making and full autonomy
 
-## 🎯 Phase 4: Self-Sustainability (Q4 2025 – November to January 2026)
-***Objective*: Achieve AI-driven decision-making and full autonomy
-
-### AI Governance
- Launch AI-managed treasury for autonomous fund allocation
- Implement on-chain voting AI agent
+AI Governance
+ Launch an AI-managed treasury for autonomous fund allocation
+ Implement an on-chain voting AI agent
 Security & Resilience
  Enable smart contract upgradeability with governance limits
  Develop anti-censorship mechanisms for long-term resilience
 Hyperstructure Finalization
- Deploy "Unkillable" AdaptX AI Core
+ Deploy the "Unkillable" AdaptX AI Core
  Ensure 100% on-chain operation for permanent decentralization
 🔄 Maintenance & Governance
  Quarterly security audits with Neodyme
- Bi-Annual feature sunsetting votes via SPL governance
+ Bi-annual feature sunsetting votes via SPL governance
  Continuous MEV strategy updates via Jito relayer network
 💡 Unique Value Propositions
 Feature	Differentiation	Status
 ZK-Enabled Bot	Verify credentials without exposing data	[ ]
-AI Profit Engine	Generates own revenue through NFTs/oracles	[ ]
-Unkillable Core	Features persist even if Discord bans bot	[ ]
+AI Profit Engine	Generates its own revenue through NFTs/oracles	[ ]
+Unkillable Core	Features persist even if Discord bans the bot	[ ]
 🛠 Code Evolution
 From Centralized to Decentralized AI
 python
 Copy
-Edit
 # BEFORE (v1)
 response = openai.ChatCompletion.create(model="gpt-3.5-turbo")
 
@@ -112,7 +101,6 @@ async def decentralized_query(prompt: str):
 Real-Time Data Integration
 python
 Copy
-Edit
 # Price alert stream
 from jupiter import JupiterStream
 
@@ -127,8 +115,9 @@ Jito Labs for MEV protection
 Arweave for permanent storage
 "We don't build another bot—we build infrastructure."
 
-vbnet
-Copy
-Edit
+This roadmap begins in February 2025 and extends into early 2026, laying out a structured and ambitious execution timeline for AdaptX.
 
-This roadmap now starts in **February 2025** and extends into **early 2026**, ensuring a logical and structured execution timeline. Let me know if you need further refinements! 🚀
+markdown
+Copy
+
+---

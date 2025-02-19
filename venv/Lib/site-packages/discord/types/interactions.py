@@ -42,6 +42,16 @@ if TYPE_CHECKING:
 
 
 InteractionType = Literal[1, 2, 3, 4, 5]
+InteractionResponseType = Literal[
+    1,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+]
 InteractionContextType = Literal[0, 1, 2]
 InteractionInstallationType = Literal[0, 1]
 
@@ -255,11 +265,73 @@ class MessageInteraction(TypedDict):
     member: NotRequired[Member]
 
 
-class MessageInteractionMetadata(TypedDict):
+class _MessageInteractionMetadata(TypedDict):
     id: Snowflake
-    type: InteractionType
     user: User
     authorizing_integration_owners: Dict[Literal['0', '1'], Snowflake]
     original_response_message_id: NotRequired[Snowflake]
-    interacted_message_id: NotRequired[Snowflake]
-    triggering_interaction_metadata: NotRequired[MessageInteractionMetadata]
+
+
+class _ApplicationCommandMessageInteractionMetadata(_MessageInteractionMetadata):
+    type: Literal[2]
+    # command_type: Literal[1, 2, 3, 4]
+
+
+class UserApplicationCommandMessageInteractionMetadata(_ApplicationCommandMessageInteractionMetadata):
+    # command_type: Literal[2]
+    target_user: User
+
+
+class MessageApplicationCommandMessageInteractionMetadata(_ApplicationCommandMessageInteractionMetadata):
+    # command_type: Literal[3]
+    target_message_id: Snowflake
+
+
+ApplicationCommandMessageInteractionMetadata = Union[
+    _ApplicationCommandMessageInteractionMetadata,
+    UserApplicationCommandMessageInteractionMetadata,
+    MessageApplicationCommandMessageInteractionMetadata,
+]
+
+
+class MessageComponentMessageInteractionMetadata(_MessageInteractionMetadata):
+    type: Literal[3]
+    interacted_message_id: Snowflake
+
+
+class ModalSubmitMessageInteractionMetadata(_MessageInteractionMetadata):
+    type: Literal[5]
+    triggering_interaction_metadata: Union[
+        ApplicationCommandMessageInteractionMetadata, MessageComponentMessageInteractionMetadata
+    ]
+
+
+MessageInteractionMetadata = Union[
+    ApplicationCommandMessageInteractionMetadata,
+    MessageComponentMessageInteractionMetadata,
+    ModalSubmitMessageInteractionMetadata,
+]
+
+
+class InteractionCallbackResponse(TypedDict):
+    id: Snowflake
+    type: InteractionType
+    activity_instance_id: NotRequired[str]
+    response_message_id: NotRequired[Snowflake]
+    response_message_loading: NotRequired[bool]
+    response_message_ephemeral: NotRequired[bool]
+
+
+class InteractionCallbackActivity(TypedDict):
+    id: str
+
+
+class InteractionCallbackResource(TypedDict):
+    type: InteractionResponseType
+    activity_instance: NotRequired[InteractionCallbackActivity]
+    message: NotRequired[Message]
+
+
+class InteractionCallback(TypedDict):
+    interaction: InteractionCallbackResponse
+    resource: NotRequired[InteractionCallbackResource]

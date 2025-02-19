@@ -903,7 +903,7 @@ class Command(Generic[GroupT, P, T]):
         predicates = getattr(param.autocomplete, '__discord_app_commands_checks__', [])
         if predicates:
             try:
-                passed = await async_all(f(interaction) for f in predicates)
+                passed = await async_all(f(interaction) for f in predicates)  # type: ignore
             except Exception:
                 passed = False
 
@@ -1014,7 +1014,7 @@ class Command(Generic[GroupT, P, T]):
         if not predicates:
             return True
 
-        return await async_all(f(interaction) for f in predicates)
+        return await async_all(f(interaction) for f in predicates)  # type: ignore
 
     def error(self, coro: Error[GroupT]) -> Error[GroupT]:
         """A decorator that registers a coroutine as a local error handler.
@@ -1308,7 +1308,7 @@ class ContextMenu:
         if not predicates:
             return True
 
-        return await async_all(f(interaction) for f in predicates)
+        return await async_all(f(interaction) for f in predicates)  # type: ignore
 
     def _has_any_error_handlers(self) -> bool:
         return self.on_error is not None
@@ -1842,7 +1842,7 @@ class Group:
         if len(params) != 2:
             raise TypeError('The error handler must have 2 parameters.')
 
-        self.on_error = coro
+        self.on_error = coro  # type: ignore
         return coro
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
@@ -2821,7 +2821,7 @@ def allowed_installs(
     return inner
 
 
-def default_permissions(**perms: bool) -> Callable[[T], T]:
+def default_permissions(perms_obj: Optional[Permissions] = None, /, **perms: bool) -> Callable[[T], T]:
     r"""A decorator that sets the default permissions needed to execute this command.
 
     When this decorator is used, by default users must have these permissions to execute the command.
@@ -2845,8 +2845,12 @@ def default_permissions(**perms: bool) -> Callable[[T], T]:
     -----------
     \*\*perms: :class:`bool`
         Keyword arguments denoting the permissions to set as the default.
+    perms_obj: :class:`~discord.Permissions`
+        A permissions object as positional argument. This can be used in combination with ``**perms``.
 
-    Example
+        .. versionadded:: 2.5
+
+    Examples
     ---------
 
     .. code-block:: python3
@@ -2855,9 +2859,21 @@ def default_permissions(**perms: bool) -> Callable[[T], T]:
         @app_commands.default_permissions(manage_messages=True)
         async def test(interaction: discord.Interaction):
             await interaction.response.send_message('You may or may not have manage messages.')
+
+    .. code-block:: python3
+
+        ADMIN_PERMS = discord.Permissions(administrator=True)
+
+        @app_commands.command()
+        @app_commands.default_permissions(ADMIN_PERMS, manage_messages=True)
+        async def test(interaction: discord.Interaction):
+            await interaction.response.send_message('You may or may not have manage messages.')
     """
 
-    permissions = Permissions(**perms)
+    if perms_obj is not None:
+        permissions = perms_obj | Permissions(**perms)
+    else:
+        permissions = Permissions(**perms)
 
     def decorator(func: T) -> T:
         if isinstance(func, (Command, Group, ContextMenu)):

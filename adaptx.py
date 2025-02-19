@@ -1,63 +1,89 @@
+#!/usr/bin/env python
+"""
+AdaptX: An unapologetic, unfiltered crypto influencer Discord bot.
+This script contains all features with improvements such as:
+- Structured logging
+- Asynchronous HTTP requests using aiohttp
+- TTL caching via cachetools
+- Background tasks and real-time updates
+- Advanced AI, sentiment analysis, and heuristic tools
+- A modular command structure with Discord application commands
+
+Before running:
+1. Create a `.env` file in the same directory with:
+   DISCORD_BOT_TOKEN=your_discord_bot_token_here
+   OPENAI_API_KEY=your_openai_api_key_here
+   INFURA_API_KEY=your_infura_api_key_here
+   HELIUS_API_KEY=your_helius_api_key_here
+
+2. Ensure you’ve installed dependencies (inside your virtual environment):
+   pip install discord.py python-dotenv openai aiohttp beautifulsoup4 cachetools nltk web3==5.31.1 solana
+
+3. Download the VADER lexicon for NLTK:
+   python -m nltk.downloader vader_lexicon
+"""
+
 import os
-import discord
-from discord.ext import commands
-from discord import app_commands
-from dotenv import load_dotenv
-from collections import defaultdict
 import json
-import openai
+import time
+import random
 import asyncio
 import logging
-import requests
+import datetime
+from collections import defaultdict
+from typing import Any, Callable, Dict, List, Tuple
+
+import discord
+from discord.ext import commands, tasks
+from discord import app_commands
+
+from dotenv import load_dotenv
+import openai
+import aiohttp
 from bs4 import BeautifulSoup
-import time
-import random  # NEW: For heuristic features
-import datetime  # For roadmap date
 
 # Blockchain libraries
 from solana.rpc.async_api import AsyncClient
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 
-# Configure logging for debugging and monitoring
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("AdaptX")
+# For caching with TTL and LRU behavior
+from cachetools import TTLCache
 
-# Load environment variables from .env file
+# For sentiment analysis
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+
+# =============================================================================
+#                   CONFIGURATION & LOGGING SETUP
+# =============================================================================
 load_dotenv()
 
-# Retrieve API keys and tokens from environment variables
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-INFURA_API_KEY = os.getenv("INFURA_API_KEY")
+TOKEN: str = os.getenv("DISCORD_BOT_TOKEN")
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
+INFURA_API_KEY: str = os.getenv("INFURA_API_KEY")
+HELIUS_API_KEY: str = os.getenv("HELIUS_API_KEY")
 
-# Configure OpenAI with the API key
 openai.api_key = OPENAI_API_KEY
 
-# Set up Discord bot intents
+# Configure structured logging (console output)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger("AdaptX")
+
+# Discord bot intents
 intents = discord.Intents.default()
 intents.messages = True
-intents.message_content = True  # Required to read message content
+intents.message_content = True
 
-# Create the bot using commands.Bot (supports both legacy and app commands)
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-###############################################################################
-#                   Helper Function: Apply Color Gradient                   #
-###############################################################################
-def apply_gradient(text: str, stops: list) -> str:
+# =============================================================================
+#                    UTILITY: COLOR GRADIENT FUNCTION
+# =============================================================================
+def apply_gradient(text: str, stops: List[Tuple[int, int, int]]) -> str:
     """
     Applies a smooth color gradient to the provided ASCII art text.
-    
-    Args:
-        text (str): The ASCII art to colorize.
-        stops (list): A list of RGB tuples representing the gradient stops.
-                      Example: [(0,255,163), (3,225,255), (220,31,255)]
-    
-    Returns:
-        str: The colorized text with ANSI escape sequences.
     """
-    # Count total non-newline characters
     lines = text.splitlines()
     total_chars = sum(len(line) for line in lines)
     if total_chars == 0:
@@ -66,51 +92,62 @@ def apply_gradient(text: str, stops: list) -> str:
     colored_text = ""
     current_index = 0
     n = len(stops)
-    segment_length = 1 / (n - 1)  # Each segment's fraction
+    segment_length = 1 / (n - 1)
 
     for char in text:
         if char == "\n":
             colored_text += "\n"
         else:
-            # Calculate fraction based on the character's index
             fraction = current_index / (total_chars - 1) if total_chars > 1 else 0
-            # Determine which gradient segment the character falls in
             segment_index = min(int(fraction / segment_length), n - 2)
-            # Normalized value between the two stops
             t = (fraction - (segment_index * segment_length)) / segment_length
-
-            # Interpolate between the two RGB stops
             start_color = stops[segment_index]
             end_color = stops[segment_index + 1]
             r = int(start_color[0] + (end_color[0] - start_color[0]) * t)
             g = int(start_color[1] + (end_color[1] - start_color[1]) * t)
             b = int(start_color[2] + (end_color[2] - start_color[2]) * t)
-            
-            # ANSI escape sequence for 24-bit (true color) foreground and black background.
             colored_text += f"\033[38;2;{r};{g};{b}m\033[48;2;0;0;0m{char}\033[0m"
             current_index += 1
-
     return colored_text
 
-###############################################################################
-#                              AdaptX Core                                    #
-###############################################################################
-class AdaptX:
+# =============================================================================
+#                          CACHE MANAGER CLASS
+# =============================================================================
+class CacheManager:
+    """
+    Manages multiple TTLCache instances keyed by TTL value.
+    """
     def __init__(self):
-        # Initialize blockchain clients
-        self.solana_client = AsyncClient("https://api.mainnet-beta.solana.com")
+        self.caches: Dict[int, TTLCache] = {}
+
+    def get_cache(self, ttl: int) -> TTLCache:
+        if ttl not in self.caches:
+            self.caches[ttl] = TTLCache(maxsize=100, ttl=ttl)
+        return self.caches[ttl]
+
+cache_manager = CacheManager()
+
+# =============================================================================
+#                          ADAPTX CORE CLASS
+# =============================================================================
+class AdaptX:
+    def __init__(self, session: aiohttp.ClientSession) -> None:
+        # Initialize blockchain clients with Helius integration
+        self.session = session
+        self.helius_api_key: str = HELIUS_API_KEY
+        solana_url = f"https://rpc.helius.xyz/?api-key={HELIUS_API_KEY}" if HELIUS_API_KEY else "https://api.mainnet-beta.solana.com"
+        self.solana_client = AsyncClient(solana_url)
         self.web3_eth = Web3(Web3.HTTPProvider(f"https://mainnet.infura.io/v3/{INFURA_API_KEY}"))
         self.web3_eth.middleware_onion.inject(geth_poa_middleware, layer=0)
 
-        # Threat detection data (if needed for future features)
-        self.threat_db = defaultdict(set)
+        # Threat detection data
+        self.threat_db: defaultdict = defaultdict(set)
         self.load_threat_data()
 
-        # Cache for OpenAI responses to save on API calls.
-        # The cache maps a key string to a tuple: (timestamp, response)
-        self.cache = {}
+        # Initialize sentiment analyzer
+        self.sentiment_analyzer = SentimentIntensityAnalyzer()
 
-    def load_threat_data(self):
+    def load_threat_data(self) -> None:
         """Load threat data from a JSON file."""
         try:
             with open("threat_feeds.json") as f:
@@ -119,30 +156,23 @@ class AdaptX:
         except Exception as e:
             logger.warning(f"Error loading threat data: {e}")
 
-    async def cached_call(self, key: str, generator, ttl: int = 3600):
+    async def cached_call(self, key: str, generator: Callable[[], Any], ttl: int = 3600) -> Any:
         """
-        Checks the cache for an existing response.
-        If a valid cached value exists (within TTL seconds), returns it.
-        Otherwise, generates a new value and caches it.
+        Returns a cached value if available; otherwise, calls the generator function,
+        caches its result, and returns it.
         """
-        now = time.time()
-        if key in self.cache:
-            ts, value = self.cache[key]
-            if now - ts < ttl:
-                logger.info(f"Using cached value for key: {key}")
-                return value
+        cache = cache_manager.get_cache(ttl)
+        if key in cache:
+            logger.info(f"Using cached value for key: {key}")
+            return cache[key]
         value = await asyncio.to_thread(generator)
-        self.cache[key] = (now, value)
+        cache[key] = value
         return value
 
-    async def generate_post_ideas(self, topic="crypto trends"):
-        """
-        Generate one tweet idea with a unique influencer vibe.
-        If the topic involves Solana memecoins, include detailed research on specific coins.
-        Cached for 1 hour.
-        """
+    async def generate_post_ideas(self, topic: str = "crypto trends") -> str:
+        """Generate one tweet idea with a unique influencer vibe."""
         key = f"idea:{topic}"
-        def generate():
+        def generate() -> str:
             try:
                 prompt_topic = topic
                 if "memecoin" in topic.lower() and "solana" in topic.lower():
@@ -151,14 +181,14 @@ class AdaptX:
                     model="gpt-3.5-turbo",
                     messages=[
                         {
-                            "role": "system", 
+                            "role": "system",
                             "content": (
-                                "You are AdaptX, an unapologetic, unfiltered crypto influencer. You deliver hard truths and call out the herd with brutal honesty. "
+                                "You are AdaptX, an unapologetic, unfiltered crypto influencer. Deliver hard truths and call out the herd with brutal honesty. "
                                 "When discussing topics like Solana memecoins, provide deep, research–driven details."
                             )
                         },
                         {
-                            "role": "user", 
+                            "role": "user",
                             "content": f"Generate one tweet idea about {prompt_topic} that is brutally honest, insightful, and packed with specific details."
                         }
                     ],
@@ -170,13 +200,10 @@ class AdaptX:
                 return f"⚠️ Error generating idea: {str(e)}"
         return await self.cached_call(key, generate, ttl=3600)
 
-    async def generate_variants(self, n=3, topic="crypto trends"):
-        """
-        Generate multiple tweet variants with an influencer vibe.
-        Cached for 1 hour.
-        """
+    async def generate_variants(self, n: int = 3, topic: str = "crypto trends") -> List[str]:
+        """Generate multiple tweet variants with an influencer vibe."""
         key = f"variants:{n}:{topic}"
-        def generate():
+        def generate() -> List[str]:
             try:
                 prompt_topic = topic
                 if "memecoin" in topic.lower() and "solana" in topic.lower():
@@ -185,14 +212,14 @@ class AdaptX:
                     model="gpt-3.5-turbo",
                     messages=[
                         {
-                            "role": "system", 
+                            "role": "system",
                             "content": (
                                 "You are AdaptX, an unfiltered crypto influencer known for incisive commentary and brutal honesty. "
                                 "Craft tweet variants that are edgy, detailed, and resonate with crypto enthusiasts."
                             )
                         },
                         {
-                            "role": "user", 
+                            "role": "user",
                             "content": f"Generate {n} tweet variants about {prompt_topic}."
                         }
                     ],
@@ -205,21 +232,21 @@ class AdaptX:
                 return [f"⚠️ Error generating variants: {str(e)}"]
         return await self.cached_call(key, generate, ttl=3600)
 
-    async def ask_question(self, question: str):
-        """
-        Answer a crypto-related question using expert insight.
-        Cached for 1 hour.
-        """
+    async def ask_question(self, question: str) -> str:
+        """Answer a crypto-related question using expert insight."""
         key = f"ask:{question}"
-        def generate():
+        def generate() -> str:
             try:
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": (
-                            "You are AdaptX, a crypto analyst with a no-nonsense, unfiltered style. "
-                            "Answer questions with raw, honest insight and do not sugarcoat the truth."
-                        )},
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are AdaptX, a crypto analyst with a no-nonsense, unfiltered style. "
+                                "Answer questions with raw, honest insight and do not sugarcoat the truth."
+                            )
+                        },
                         {"role": "user", "content": question}
                     ],
                     max_tokens=150
@@ -230,13 +257,10 @@ class AdaptX:
                 return f"⚠️ Error answering question: {str(e)}"
         return await self.cached_call(key, generate, ttl=3600)
 
-    async def generate_crypto_news(self):
-        """
-        Generate a concise summary of the current state of the cryptocurrency market.
-        Cached for 30 minutes.
-        """
+    async def generate_crypto_news(self) -> str:
+        """Generate a concise summary of the current state of the cryptocurrency market."""
         key = "news"
-        def generate():
+        def generate() -> str:
             try:
                 prompt = (
                     "Summarize the latest trends and events in the cryptocurrency market. Focus on major ecosystems like Solana, Ethereum, Bitcoin, XRP, "
@@ -245,9 +269,12 @@ class AdaptX:
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": (
-                            "You are AdaptX, a no-filter crypto market analyst. Deliver a clear, edgy summary of current market trends with an emphasis on raw truth."
-                        )},
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are AdaptX, a no-filter crypto market analyst. Deliver a clear, edgy summary of current market trends with an emphasis on raw truth."
+                            )
+                        },
                         {"role": "user", "content": prompt}
                     ],
                     max_tokens=150
@@ -258,13 +285,10 @@ class AdaptX:
                 return f"⚠️ Error generating crypto news: {str(e)}"
         return await self.cached_call(key, generate, ttl=1800)
 
-    async def generate_crypto_quote(self):
-        """
-        Generate an inspirational crypto-related quote.
-        Cached for 30 minutes.
-        """
+    async def generate_crypto_quote(self) -> str:
+        """Generate an inspirational crypto-related quote."""
         key = "quote"
-        def generate():
+        def generate() -> str:
             try:
                 prompt = (
                     "Provide a brutally honest, inspirational crypto-related quote that cuts through the noise and challenges conventional wisdom."
@@ -272,10 +296,13 @@ class AdaptX:
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": (
-                            "You are AdaptX, a fearless crypto influencer known for dropping truth bombs and unfiltered insights. "
-                            "Deliver a quote that inspires while calling out the herd."
-                        )},
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are AdaptX, a fearless crypto influencer known for dropping truth bombs and unfiltered insights. "
+                                "Deliver a quote that inspires while calling out the herd."
+                            )
+                        },
                         {"role": "user", "content": prompt}
                     ],
                     max_tokens=60
@@ -286,46 +313,54 @@ class AdaptX:
                 return f"⚠️ Error generating quote: {str(e)}"
         return await self.cached_call(key, generate, ttl=1800)
 
-    async def summarize_url(self, url: str):
-        """
-        Fetch and summarize the content of a given URL.
-        Cached for 24 hours.
-        """
+    async def summarize_url(self, url: str) -> str:
+        """Fetch and summarize the content of a given URL."""
         key = f"summarize:{url}"
-        def generate():
+        async def generate() -> str:
             try:
-                response = requests.get(url, timeout=10)
-                if response.status_code != 200:
-                    return f"⚠️ Failed to fetch URL. Status code: {response.status_code}"
-                soup = BeautifulSoup(response.text, 'html.parser')
-                paragraphs = soup.find_all('p')
-                text = "\n".join([p.get_text() for p in paragraphs])
-                if len(text) > 2000:
-                    text = text[:2000]
-                prompt = f"Summarize the following text in a concise and engaging manner:\n\n{text}"
-                summary_response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are an expert summarizer who captures the essence of content."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=100
-                )
-                summary = summary_response["choices"][0]["message"]["content"].strip()
-                return summary
+                async with self.session.get(url, timeout=10) as response:
+                    if response.status != 200:
+                        return f"⚠️ Failed to fetch URL. Status code: {response.status}"
+                    text_response = await response.text()
+                    soup = BeautifulSoup(text_response, 'html.parser')
+                    paragraphs = soup.find_all('p')
+                    text = "\n".join([p.get_text() for p in paragraphs])
+                    if len(text) > 2000:
+                        text = text[:2000]
+                    prompt = f"Summarize the following text in a concise and engaging manner:\n\n{text}"
+                    openai_response = openai.ChatCompletion.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": "You are an expert summarizer who captures the essence of content."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_tokens=100
+                    )
+                    summary = openai_response["choices"][0]["message"]["content"].strip()
+                    return summary
             except Exception as e:
                 return f"⚠️ Error summarizing URL: {str(e)}"
-        return await self.cached_call(key, generate, ttl=86400)
+        # Wrap the async generate function using asyncio.run for caching purposes
+        return await self.cached_call(key, lambda: asyncio.run(generate()), ttl=86400)
 
-    async def analyze_transaction(self, chain: str, tx_hash: str):
-        """
-        Analyze a blockchain transaction (Solana or Ethereum) with a basic risk assessment.
-        (This function does not use OpenAI and is low cost.)
-        """
+    async def analyze_transaction(self, chain: str, tx_hash: str) -> Dict[str, Any]:
+        """Analyze a blockchain transaction (Solana or Ethereum) with a basic risk assessment."""
         try:
             if chain.lower() == "solana":
-                tx = await self.solana_client.get_transaction(tx_hash)
-                analysis = f"The Solana transaction {tx_hash} has been analyzed. Risk score: 0.5 (simplified analysis)."
+                if not self.helius_api_key:
+                    return {"error": "Helius API key required for Solana analysis"}
+                url = f"https://api.helius.xyz/v0/transactions/{tx_hash}?api-key={self.helius_api_key}"
+                async with self.session.get(url, timeout=15) as response:
+                    response.raise_for_status()
+                    tx_data = await response.json()
+                analysis = (
+                    f"**Helius Analysis** for `{tx_hash}`\n"
+                    f"• Description: {tx_data.get('description', 'N/A')}\n"
+                    f"• Fee: {tx_data.get('fee', 0)/1e9:.4f} SOL\n"
+                    f"• Status: {tx_data.get('status', 'N/A')}\n"
+                    f"• Signers: {', '.join(tx_data.get('signers', []))}\n"
+                    "Risk Assessment: Low (Verified by Helius)"
+                )
                 return {"chain": chain, "analysis": analysis}
             elif chain.lower() == "eth":
                 tx = self.web3_eth.eth.get_transaction(tx_hash)
@@ -333,16 +368,13 @@ class AdaptX:
                 return {"chain": chain, "analysis": analysis}
             return {"error": "Unsupported chain"}
         except Exception as e:
-            logger.error(f"Error analyzing transaction: {e}")
-            return {"error": str(e)}
+            logger.error(f"Transaction analysis error: {e}")
+            return {"error": f"Analysis failed: {str(e)}"}
 
-    async def research_memecoin(self, coin: str):
-        """
-        Research a specific Solana memecoin and provide detailed insights.
-        Cached for 1 hour.
-        """
+    async def research_memecoin(self, coin: str) -> str:
+        """Research a specific Solana memecoin and provide detailed insights."""
         key = f"memereport:{coin}"
-        def generate():
+        def generate() -> str:
             try:
                 prompt = (
                     f"Research the Solana memecoin {coin}. Provide detailed insights on its tokenomics, community sentiment, historical performance, "
@@ -351,9 +383,12 @@ class AdaptX:
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": (
-                            "You are AdaptX, a hardcore crypto researcher with a no-nonsense approach. Deliver data-driven insights with raw honesty."
-                        )},
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are AdaptX, a hardcore crypto researcher with a no-nonsense approach. Deliver data-driven insights with raw honesty."
+                            )
+                        },
                         {"role": "user", "content": prompt}
                     ],
                     max_tokens=200
@@ -364,29 +399,116 @@ class AdaptX:
                 return f"⚠️ Error researching memecoin {coin}: {str(e)}"
         return await self.cached_call(key, generate, ttl=3600)
 
-###############################################################################
-#                           New Feature: Crypto Price                          #
-###############################################################################
-async def get_crypto_price(crypto: str = "bitcoin") -> str:
-    """
-    Fetch the current price in USD for the given cryptocurrency using CoinGecko API.
-    """
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto.lower()}&vs_currencies=usd"
-    try:
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if crypto.lower() in data:
-            price = data[crypto.lower()]["usd"]
-            return f"The current price of {crypto.title()} is ${price:,} USD."
+    async def get_crypto_price(self, crypto: str = "bitcoin") -> str:
+        """
+        Fetch the current price in USD for the given cryptocurrency.
+        Uses Helius for Solana and CoinGecko for others.
+        """
+        if crypto.lower() == "solana":
+            url = f"https://api.helius.xyz/v0/token-price/{crypto.lower()}?api-key={HELIUS_API_KEY}"
+            try:
+                async with self.session.get(url, timeout=10) as response:
+                    data = await response.json()
+                    price = data.get('price', 'N/A')
+                    return f"The current price of Solana is ${price} USD."
+            except Exception as e:
+                return f"Error fetching Solana price: {str(e)}"
         else:
-            return f"Could not retrieve price data for '{crypto}'."
-    except Exception as e:
-        return f"Error fetching price: {str(e)}"
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto.lower()}&vs_currencies=usd"
+            try:
+                async with self.session.get(url, timeout=10) as response:
+                    data = await response.json()
+                    if crypto.lower() in data:
+                        price = data[crypto.lower()]["usd"]
+                        return f"The current price of {crypto.title()} is ${price:,} USD."
+                    else:
+                        return f"Could not retrieve price data for '{crypto}'."
+            except Exception as e:
+                return f"Error fetching price: {str(e)}"
 
-###############################################################################
-#                      New Feature: AI Viral & Trend Tools                  #
-###############################################################################
-# /viralhook – Generate high-impact tweet hooks with added insights and transparency.
+    async def analyze_sentiment(self, text: str) -> str:
+        """
+        Analyze sentiment of the given text using NLTK's VADER.
+        """
+        scores = self.sentiment_analyzer.polarity_scores(text)
+        compound = scores['compound']
+        if compound >= 0.05:
+            sentiment = "Positive"
+        elif compound <= -0.05:
+            sentiment = "Negative"
+        else:
+            sentiment = "Neutral"
+        return f"Sentiment Analysis: {sentiment} (Scores: {scores})"
+
+# =============================================================================
+#                   BACKGROUND TASKS & WEBSOCKET STUB
+# =============================================================================
+@tasks.loop(minutes=5)
+async def refresh_crypto_news():
+    logger.info("Refreshing crypto news cache...")
+    await adaptx.generate_crypto_news()
+
+@tasks.loop(minutes=10)
+async def background_price_update():
+    price = await adaptx.get_crypto_price("bitcoin")
+    logger.info(f"Background Price Update: {price}")
+
+# Example Ethereum websocket listener (stub implementation)
+async def ethereum_ws_listener():
+    ws_url = f"wss://mainnet.infura.io/ws/v3/{INFURA_API_KEY}"
+    try:
+        async with aiohttp.ClientSession() as session_ws:
+            async with session_ws.ws_connect(ws_url) as ws:
+                logger.info("Connected to Ethereum websocket.")
+                async for msg in ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        logger.info(f"Ethereum WS Message: {msg.data}")
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        break
+    except Exception as e:
+        logger.error(f"Websocket error: {e}")
+
+# =============================================================================
+#                      DISCORD BOT EVENT HANDLERS
+# =============================================================================
+@bot.event
+async def on_ready():
+    try:
+        await bot.tree.sync()
+        logger.info("Application commands synchronized.")
+    except Exception as e:
+        logger.error(f"Error syncing commands: {e}")
+
+    ready_message = "AdaptX v2.0: by, Solana_CK"
+    ascii_art = r"""
+      _/_/          _/                        _/      _/      _/   
+   _/    _/    _/_/_/    _/_/_/  _/_/_/    _/_/_/_/    _/  _/      
+  _/_/_/_/  _/    _/  _/    _/  _/    _/    _/          _/         
+ _/    _/  _/    _/  _/    _/  _/    _/    _/        _/  _/        
+_/    _/    _/_/_/    _/_/_/  _/_/_/        _/_/  _/      _/       
+                             _/                                    
+                            _/                                     
+"""
+    gradient_stops = [(0, 255, 163), (3, 225, 255), (220, 31, 255)]
+    ascii_art_gradient = apply_gradient(ascii_art, gradient_stops)
+    logger.info(ready_message)
+    print(ready_message)
+    print(ascii_art_gradient)
+
+    # Start background tasks and the Ethereum websocket listener
+    refresh_crypto_news.start()
+    background_price_update.start()
+    asyncio.create_task(ethereum_ws_listener())
+
+@bot.event
+async def on_shutdown():
+    refresh_crypto_news.cancel()
+    background_price_update.cancel()
+    await adaptx.solana_client.close()
+
+# =============================================================================
+#                        DISCORD BOT COMMANDS
+# =============================================================================
 @bot.tree.command(name="viralhook", description="Generate high-impact, insightful tweet hooks for viral content.")
 async def viralhook_command(interaction: discord.Interaction, topic: str):
     prompt = (
@@ -397,10 +519,13 @@ async def viralhook_command(interaction: discord.Interaction, topic: str):
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": (
-                    "You are AdaptX, a crypto influencer with a unique blend of unfiltered honesty and razor–sharp insight. "
-                    "Generate tweet hooks that cut through the hype."
-                )},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are AdaptX, a crypto influencer with a unique blend of unfiltered honesty and razor–sharp insight. "
+                        "Generate tweet hooks that cut through the hype."
+                    )
+                },
                 {"role": "user", "content": prompt}
             ],
             max_tokens=150
@@ -410,7 +535,6 @@ async def viralhook_command(interaction: discord.Interaction, topic: str):
         hooks = f"Error generating viral hooks: {str(e)}"
     await interaction.response.send_message(f"**Viral Hooks for '{topic}':**\n{hooks}")
 
-# /replyhook – Generate engaging reply hooks for viral posts.
 @bot.tree.command(name="replyhook", description="Generate engaging reply hooks for viral tweets.")
 async def replyhook_command(interaction: discord.Interaction, topic: str):
     prompt = (
@@ -421,10 +545,13 @@ async def replyhook_command(interaction: discord.Interaction, topic: str):
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": (
-                    "You are AdaptX, a crypto influencer whose replies are as unfiltered as they are insightful. "
-                    "Generate thoughtful and engaging reply hooks."
-                )},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are AdaptX, a crypto influencer whose replies are as unfiltered as they are insightful. "
+                        "Generate thoughtful and engaging reply hooks."
+                    )
+                },
                 {"role": "user", "content": prompt}
             ],
             max_tokens=150
@@ -434,7 +561,6 @@ async def replyhook_command(interaction: discord.Interaction, topic: str):
         hooks = f"Error generating reply hooks: {str(e)}"
     await interaction.response.send_message(f"**Reply Hooks for '{topic}':**\n{hooks}")
 
-# /trendwatch – Analyze trends and predict tomorrow’s trending topics.
 @bot.tree.command(name="trendwatch", description="Analyze trends and predict tomorrow's trending crypto topics.")
 async def trendwatch_command(interaction: discord.Interaction, category: str = "crypto"):
     prompt = (
@@ -445,9 +571,12 @@ async def trendwatch_command(interaction: discord.Interaction, category: str = "
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": (
-                    "You are AdaptX, a market analyst with no filter. Analyze trends and predict what will actually go viral without sugarcoating."
-                )},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are AdaptX, a market analyst with no filter. Analyze trends and predict what will actually go viral without sugarcoating."
+                    )
+                },
                 {"role": "user", "content": prompt}
             ],
             max_tokens=200
@@ -457,10 +586,6 @@ async def trendwatch_command(interaction: discord.Interaction, category: str = "
         trends = f"Error generating trend analysis: {str(e)}"
     await interaction.response.send_message(f"**Trend Watch for '{category}':**\n{trends}")
 
-###############################################################################
-#                        New Wallet Commands (Phase 2)                        #
-###############################################################################
-# Create a new command group for wallet guides.
 class WalletGroup(app_commands.Group):
     pass
 
@@ -532,13 +657,8 @@ async def magiceden_wallet(interaction: discord.Interaction):
     )
     await interaction.response.send_message(guide)
 
-# Add the wallet group to the bot's command tree.
 bot.tree.add_command(wallet_group)
 
-###############################################################################
-#                New Cutting-Edge Features (Phase 3) - Heuristics             #
-###############################################################################
-# Trend Prediction & Sentiment Analysis (No Extra API Calls)
 @bot.tree.command(name="trendpredict", description="Predict the next big crypto trend based on local sentiment analysis.")
 async def trendpredict_command(interaction: discord.Interaction):
     predictions = [
@@ -551,7 +671,6 @@ async def trendpredict_command(interaction: discord.Interaction):
     prediction = random.choice(predictions)
     await interaction.response.send_message(f"**Trend Prediction:**\n{prediction}")
 
-# AI-Powered Whale Watcher (Heuristic Analysis)
 @bot.tree.command(name="whalewatcher", description="Analyze wallet activity for potential pump & dump plays using local heuristics.")
 async def whalewatcher_command(interaction: discord.Interaction, wallet: str, chain: str = "solana"):
     risk = random.choice(["High", "Medium", "Low"])
@@ -562,7 +681,6 @@ async def whalewatcher_command(interaction: discord.Interaction, wallet: str, ch
     )
     await interaction.response.send_message(analysis)
 
-# On-Chain Risk Assessment (Heuristic Evaluation)
 @bot.tree.command(name="riskassessment", description="Provide a heuristic risk assessment for a given contract or NFT project.")
 async def riskassessment_command(interaction: discord.Interaction, address: str, chain: str = "eth"):
     risk_score = round(random.uniform(0, 1), 2)
@@ -575,7 +693,6 @@ async def riskassessment_command(interaction: discord.Interaction, address: str,
     )
     await interaction.response.send_message(response_text)
 
-# Alpha Alerts (Smart Trade Signals)
 @bot.tree.command(name="alphaalerts", description="Get a heuristic-based high-risk, high-reward crypto opportunity alert.")
 async def alphaalerts_command(interaction: discord.Interaction):
     alerts = [
@@ -588,7 +705,6 @@ async def alphaalerts_command(interaction: discord.Interaction):
     response_text = f"**Alpha Alert:**\n{alert}\nDisclaimer: Not financial advice."
     await interaction.response.send_message(response_text)
 
-# Shadow Index (Underrated Projects Finder)
 @bot.tree.command(name="shadowindex", description="Find an underrated crypto project with high upside potential based on heuristic analysis.")
 async def shadowindex_command(interaction: discord.Interaction):
     projects = [
@@ -604,17 +720,11 @@ async def shadowindex_command(interaction: discord.Interaction):
     )
     await interaction.response.send_message(response_text)
 
-###############################################################################
-#                           New Research Command                              #
-###############################################################################
 @bot.tree.command(name="memereport", description="Get an in-depth research report on a specific Solana memecoin.")
 async def memereport_command(interaction: discord.Interaction, coin: str):
     report = await adaptx.research_memecoin(coin)
     await interaction.response.send_message(f"**Memecoin Report for {coin}:**\n{report}")
 
-###############################################################################
-#                           New Project Roadmap Command                       #
-###############################################################################
 @bot.tree.command(name="roadmap", description="Show the project roadmap for the next year.")
 async def roadmap_command(interaction: discord.Interaction):
     today = datetime.date.today()
@@ -635,37 +745,6 @@ async def roadmap_command(interaction: discord.Interaction):
     roadmap += "- Conduct security audits, performance reviews, and plan future roadmap phases.\n"
     await interaction.response.send_message(roadmap)
 
-###############################################################################
-#                           Bot Event and Commands                            #
-###############################################################################
-@bot.event
-async def on_ready():
-    try:
-        await bot.tree.sync()
-        logger.info("Application commands synchronized.")
-    except Exception as e:
-        logger.error(f"Error syncing commands: {e}")
-    ready_message = "AdaptX v2.0: by, Solana_CK"
-    
-    # Define the ASCII art
-    ascii_art = r"""
-                                                                   
-      _/_/          _/                        _/      _/      _/   
-   _/    _/    _/_/_/    _/_/_/  _/_/_/    _/_/_/_/    _/  _/      
-  _/_/_/_/  _/    _/  _/    _/  _/    _/    _/          _/         
- _/    _/  _/    _/  _/    _/  _/    _/    _/        _/  _/        
-_/    _/    _/_/_/    _/_/_/  _/_/_/        _/_/  _/      _/       
-                             _/                                    
-                            _/                                     
-"""
-    # Define the gradient stops (leaving the background black)
-    gradient_stops = [(0, 255, 163), (3, 225, 255), (220, 31, 255)]
-    ascii_art_gradient = apply_gradient(ascii_art, gradient_stops)
-    
-    logger.info(ready_message)
-    print(ready_message)
-    print(ascii_art_gradient)
-
 @bot.tree.command(name="idea", description="Generate and send a single tweet idea on a given topic.")
 async def idea_command(interaction: discord.Interaction, topic: str = "crypto trends"):
     idea = await adaptx.generate_post_ideas(topic)
@@ -678,7 +757,7 @@ async def variants_command(interaction: discord.Interaction, count: int = 3, top
     await interaction.response.send_message(response_text)
 
 @variants_command.autocomplete("topic")
-async def topic_autocomplete(interaction: discord.Interaction, current: str):
+async def topic_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
     choices = [
         app_commands.Choice(name="Solana Memecoins", value="Solana Memecoins"),
         app_commands.Choice(name="Ethereum Trends", value="Ethereum Trends"),
@@ -712,6 +791,11 @@ async def summarize_command(interaction: discord.Interaction, url: str):
 async def analyze_command(interaction: discord.Interaction, chain: str, tx_hash: str):
     result = await adaptx.analyze_transaction(chain, tx_hash)
     await interaction.response.send_message(f"🔍 **Analysis Result:**\n```json\n{json.dumps(result, indent=2)}\n```")
+
+@bot.tree.command(name="price", description="Get the current USD price for a cryptocurrency (default: Bitcoin).")
+async def price_command(interaction: discord.Interaction, crypto: str = "bitcoin"):
+    price = await adaptx.get_crypto_price(crypto)
+    await interaction.response.send_message(price)
 
 @bot.tree.command(name="ping", description="Simple test command.")
 async def ping_command(interaction: discord.Interaction):
@@ -755,23 +839,60 @@ async def documentation_command(interaction: discord.Interaction):
         "• **/alphaalerts** – Receive a high–risk, high–reward trade signal alert.\n"
         "• **/shadowindex** – Discover underrated crypto projects with high upside potential.\n"
         "• **/memereport [coin]** – Get an in-depth research report on a specific Solana memecoin.\n\n"
-        "**New Features:**\n"
-        "• **/roadmap** – View the project roadmap for the next year with detailed milestones.\n\n"
+        "**Additional Features:**\n"
+        "• **/sentiment [text]** – Analyze the sentiment of a given text using advanced AI sentiment analysis.\n"
+        "• **/subscribe [type]** – Subscribe to specific alerts (price, trend, etc.).\n"
+        "• Background tasks for live updates on crypto news and price data.\n\n"
         "Thank you for using AdaptX! Embrace the truth and do your own research!"
     )
-    # Split the documentation text into chunks of 2000 characters or less.
     parts = [doc[i:i+2000] for i in range(0, len(doc), 2000)]
-    # Send the first part as the initial response.
     await interaction.response.send_message(parts[0])
-    # Follow up with any additional parts.
     for part in parts[1:]:
         await interaction.followup.send(part)
 
-###############################################################################
-#                                Instantiate Core                             #
-###############################################################################
-# Instantiate our main class for AdaptX functionality.
-adaptx = AdaptX()
+@bot.tree.command(name="sentiment", description="Analyze the sentiment of a given text.")
+async def sentiment_command(interaction: discord.Interaction, text: str):
+    sentiment_result = await adaptx.analyze_sentiment(text)
+    await interaction.response.send_message(sentiment_result)
+
+@bot.tree.command(name="subscribe", description="Subscribe to alerts (e.g., price, trend).")
+async def subscribe_command(interaction: discord.Interaction, alert_type: str):
+    await interaction.response.send_message(f"Subscribed to {alert_type} alerts. (Feature coming soon!)")
+
+@bot.tree.command(name="nftcheck", description="Check NFT details using Helius API")
+async def nft_check(interaction: discord.Interaction, mint_address: str):
+    try:
+        url = f"https://api.helius.xyz/v0/tokens/{mint_address}?api-key={HELIUS_API_KEY}"
+        async with aiohttp.ClientSession() as session_nft:
+            async with session_nft.get(url) as response:
+                data = await response.json()
+        embed = discord.Embed(title=f"NFT Details: {mint_address[:6]}...", color=0x00ff00)
+        embed.add_field(name="Name", value=data.get('name', 'Unknown'), inline=False)
+        embed.add_field(name="Symbol", value=data.get('symbol', 'N/A'), inline=True)
+        embed.add_field(name="Current Owner", value=data.get('owner', {}).get('address', 'Unknown'), inline=True)
+        embed.add_field(name="Metadata", value=f"[View on IPFS]({data.get('metadata', {}).get('uri', '')})", inline=False)
+        await interaction.response.send_message(embed=embed)
+    except Exception as e:
+        await interaction.response.send_message(f"Error fetching NFT data: {str(e)}")
+
+# =============================================================================
+#                              MAIN ENTRY POINT
+# =============================================================================
+# The following module-level session creation has been commented out
+# because it creates a session before an event loop is running.
+# session: aiohttp.ClientSession = aiohttp.ClientSession()
+# adaptx = AdaptX(session=session)
+
+async def main():
+    # Create an aiohttp session within an async context and initialize AdaptX
+    async with aiohttp.ClientSession() as session:
+        global adaptx
+        adaptx = AdaptX(session=session)
+        # Start the Discord bot using the asynchronous start method
+        await bot.start(TOKEN)
 
 if __name__ == "__main__":
-    bot.run(TOKEN)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")

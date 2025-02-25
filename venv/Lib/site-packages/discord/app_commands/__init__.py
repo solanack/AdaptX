@@ -16,6 +16,5 @@ from .tree import *
 from .namespace import *
 from .transformers import *
 from .translator import *
-from .installs import *
 from . import checks as checks
 from .checks import Cooldown as Cooldown

@@ -111,7 +111,7 @@ class File:
             else:
                 filename = getattr(fp, 'name', 'untitled')
 
-        self._filename, filename_spoiler = _strip_spoiler(filename)  # type: ignore  # pyright doesn't understand the above getattr
+        self._filename, filename_spoiler = _strip_spoiler(filename)
         if spoiler is MISSING:
             spoiler = filename_spoiler
 

@@ -79,7 +79,6 @@ class _AutoModerationTriggerMetadataKeywordPreset(TypedDict):
 
 class _AutoModerationTriggerMetadataMentionLimit(TypedDict):
     mention_total_limit: int
-    mention_raid_protection_enabled: bool
 
 
 AutoModerationTriggerMetadata = Union[

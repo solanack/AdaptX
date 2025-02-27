@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-AdaptX: A cool, calm, and respectful Solana influencer Discord bot.
+AdaptX: A Solana influencer Discord bot with real prediction markets.
 
 Key Features:
 - Core Commands: /idea, /ask, /analyze, /walletanalysis, /price, /networkstats, /scheduleama, /governance, /usecases
@@ -8,8 +8,12 @@ Key Features:
 - Experimental Features (Set 1): /soundboard, /setalert, /nftgallery, /stakingcalc, /decode
 - New Experimental Features (Set 2): /solpoll, /tokenlottery, /validatorrank, /nftdrop, /solchat
 - New Features (Set 3): /tokenmetadata, /programaccounts, /blockinfo, /accountinfo, /leaderboard, /solanagames, /memegenerator, /snsresolve, /swapestimate, /solpay
-- Voice Support: Enabled with PyNaCl for audio features
-- Dependencies: discord.py==2.2.2, python-dotenv, aiohttp, cachetools, solana, pyfiglet, googletrans==4.0.0-rc1, base58, PyNaCl, Pillow
+- Prediction Markets: /linkwallet, /createprediction, /placewager, /viewpredictions, /settleprediction
+- Enhanced Integration: Better utilization of Helius, Quicknode, and Mistral.
+- New Features (Enhanced): /networkanalytics, /walletrealtime, /marketupdate, /solanainsights, /userfeedback
+- Additional New Features: /cryptohistory, /nftdetails, /validatorsearch, /solanadashboard, /airdrop
+- Voice Support: Enabled with PyNaCl
+- Dependencies: discord.py==2.2.2, python-dotenv, aiohttp, cachetools, solana>=0.35.0, solders, pyfiglet, base58, PyNaCl, Pillow, requests
 """
 
 import os
@@ -18,19 +22,29 @@ import logging
 import sqlite3
 import random
 from typing import Any, Dict, List, Union
+from datetime import datetime, timedelta
+import json
 
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands
-from discord import FFmpegPCMAudio  # For audio playback
+from discord import app_commands, Embed, File
+from discord import FFmpegPCMAudio
+from solders.keypair import Keypair
+from solders.pubkey import Pubkey
+from solana.rpc.async_api import AsyncClient
+from solders.transaction import Transaction
+from solders.system_program import TransferParams, transfer
+from solana.rpc.commitment import Confirmed
+from solders.signature import Signature
+import base58
 
 from dotenv import load_dotenv
 import aiohttp
 from cachetools import TTLCache
-from solana.rpc.async_api import AsyncClient
 import pyfiglet
-from googletrans import Translator
-import base58
+import requests
+from PIL import Image, ImageDraw, ImageFont
+import io
 
 # Configuration & Logging
 load_dotenv()
@@ -39,85 +53,54 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
 QUICKNODE_SOLANA_HTTP_URL = os.getenv("QUICKNODE_SOLANA_HTTP_URL")
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
+SOLANA_RPC_URL = QUICKNODE_SOLANA_HTTP_URL or "https://api.mainnet-beta.solana.com"
+BOT_WALLET_SECRET = os.getenv("BOT_WALLET_SECRET")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
-logger = logging.getLogger("Adapt X")
+logger = logging.getLogger("AdaptX")
 
-# ASCII Art with Solana Gradient Colors
+# ASCII Art with Gradient
 ascii_art = pyfiglet.figlet_format("ADAPTX", font="elite")
-
 def apply_gradient(ascii_art, gradient_stops):
-    """
-    Apply a horizontal gradient to the ASCII art across each line.
-    
-    Args:
-        ascii_art (str): The ASCII art as a string with newline-separated lines.
-        gradient_stops (list): List of colors representing gradient stops.
-    
-    Returns:
-        str: The ASCII art with a horizontal gradient applied.
-    """
     lines = ascii_art.split('\n')
     gradient_lines = []
     num_segments = len(gradient_stops) - 1
-
     for line in lines:
         L = len(line)
         if L == 0:
             gradient_lines.append('')
             continue
-
         colored_line = ""
         for pos in range(L):
-            if L > 1:
-                r = pos / (L - 1)  # Ratio from 0 to 1 across the line
-            else:
-                r = 0  # Single character lines use the first color
-
-            # Calculate the segment and local ratio for interpolation
+            r = pos / (L - 1) if L > 1 else 0
             segment = min(int(r * num_segments), num_segments - 1)
             local_ratio = (r * num_segments) - segment
             start_color = gradient_stops[segment]
             end_color = gradient_stops[segment + 1]
-            color = interpolate_color(start_color, end_color, local_ratio)
-
-            # Apply ANSI color code to the character
-            color_code = f"\033[38;2;{color[0]};{color[1]};{color[2]}m"
-            colored_line += color_code + line[pos]
-
-        colored_line += "\033[0m"  # Reset color at the end of the line
+            color = tuple(int(start_color[i] + (end_color[i] - start_color[i]) * local_ratio) for i in range(3))
+            colored_line += f"\033[38;2;{color[0]};{color[1]};{color[2]}m" + line[pos]
+        colored_line += "\033[0m"
         gradient_lines.append(colored_line)
-
     return '\n'.join(gradient_lines)
 
-def interpolate_color(start, end, ratio):
-    """Interpolate between two colors based on a ratio."""
-    return tuple(int(start[i] + (end[i] - start[i]) * ratio) for i in range(3))
-
-# Adjusted gradient stops to emphasize more purple
-gradient_stops = [
-    (0, 255, 163),    # Green
-    (3, 225, 255),    # Blue
-    (220, 31, 255),   # Purple
-    (220, 31, 255)    # Extend purple
-]
-
+gradient_stops = [(0, 255, 163), (3, 225, 255), (220, 31, 255), (220, 31, 255)]
 ascii_art_gradient = apply_gradient(ascii_art, gradient_stops)
-
 print(ascii_art_gradient)
-print("Version 1.18\n")  # Updated version
+print("Version 1.20 - Prediction Markets Edition\n")
 
-# Enable voice support with PyNaCl
+# Bot Setup
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
-intents.voice_states = True  # Enable voice states
-
+intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Input Validation Functions
+# Global Variables
+network_stats_history: List[Dict[str, Union[float, int]]] = []  # For network TPS history
+realtime_wallet_subscriptions: Dict[int, List[str]] = {}  # user_id -> list of wallet addresses
+
+# Validation Functions
 def is_valid_solana_address(address: str) -> bool:
-    """Validate if a string is a Solana address (32-44 bytes base58 encoded)."""
     try:
         decoded = base58.b58decode(address)
         return 32 <= len(decoded) <= 44
@@ -125,7 +108,6 @@ def is_valid_solana_address(address: str) -> bool:
         return False
 
 def is_valid_transaction_hash(tx_hash: str) -> bool:
-    """Validate if a string is a Solana transaction hash (64 bytes base58 encoded)."""
     try:
         decoded = base58.b58decode(tx_hash)
         return len(decoded) == 64
@@ -136,7 +118,6 @@ def is_valid_transaction_hash(tx_hash: str) -> bool:
 class CacheManager:
     def __init__(self):
         self.caches: Dict[int, TTLCache] = {}
-
     def get_cache(self, ttl: int) -> TTLCache:
         if ttl not in self.caches:
             self.caches[ttl] = TTLCache(maxsize=200, ttl=ttl)
@@ -149,225 +130,123 @@ class MistralAIClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = "https://api.mistral.ai/v1"
-
     async def generate_text(self, prompt: str, model: str = "mistral-small", max_tokens: int = 100) -> str:
         url = f"{self.base_url}/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}
-        logger.info(f"Sending request to Mistral API: {prompt[:50]}...")
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.post(url, headers=headers, json=data, timeout=10) as response:
-                    if response.status != 200:
-                        error_details = await response.text()
-                        logger.error(f"Mistral API error: {response.status} - {error_details}")
-                        return f"⚠️ API Error: {error_details}"
+                    response.raise_for_status()
                     result = await response.json()
                     return result['choices'][0]['message']['content'].strip()
             except Exception as e:
-                logger.error(f"Mistral API request failed: {e}")
+                logger.error(f"Mistral API error: {e}")
                 return f"⚠️ Error: {str(e)}"
 
 mistral_client = MistralAIClient(MISTRAL_API_KEY)
 
-# AdaptX Core Class
+# AdaptX Core Class with Solana Integration
 class AdaptX:
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
         self.helius_api_key = HELIUS_API_KEY
-        if not self.helius_api_key:
-            raise ValueError("Helius API key is required.")
-        solana_url = QUICKNODE_SOLANA_HTTP_URL if QUICKNODE_SOLANA_HTTP_URL else f"https://rpc.helius.xyz/?api-key={HELIUS_API_KEY}"
-        logger.info(f"Using Solana RPC: {solana_url}")
-        self.solana_client = AsyncClient(solana_url)
-
+        self.solana_client = AsyncClient(SOLANA_RPC_URL)
+        decoded_secret = base58.b58decode(BOT_WALLET_SECRET)
+        self.bot_keypair = Keypair.from_bytes(decoded_secret)
+        self.bot_pubkey = self.bot_keypair.pubkey
+        self.token_mints = {
+            "SOL": None,
+            "JUP": Pubkey(base58.b58decode("JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN")),
+            "BONK": Pubkey(base58.b58decode("DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"))
+        }
     async def cached_call(self, key: str, generator: callable, ttl: int = 3600) -> Any:
         cache = cache_manager.get_cache(ttl)
         if key in cache:
-            logger.debug(f"Cache hit for key: {key}")
             return cache[key]
-        logger.debug(f"Cache miss for key: {key}. Generating new value.")
         value = await generator() if asyncio.iscoroutinefunction(generator) else await asyncio.to_thread(generator)
         cache[key] = value
         return value
-
     async def generate_post_ideas(self, topic: str = "Solana trends") -> str:
         key = f"idea:{topic}"
         async def generate() -> str:
-            try:
-                prompt_topic = topic if "solana" in topic.lower() else f"{topic} in the Solana ecosystem"
-                prompt = (
-                    "You are AdaptX, a knowledgeable and respectful Solana influencer with a cool, calm style. "
-                    f"Generate one tweet idea about {prompt_topic} that is thoughtful, detailed, and engaging."
-                )
-                return await mistral_client.generate_text(prompt)
-            except Exception as e:
-                logger.error(f"Error generating idea: {e}")
-                return f"⚠️ Error generating idea: {str(e)}"
+            prompt = f"You are AdaptX, a Solana influencer. Generate a tweet idea about {topic}."
+            return await mistral_client.generate_text(prompt)
         return await self.cached_call(key, generate, ttl=3600)
-
     async def ask_question(self, question: str) -> str:
         key = f"ask:{question}"
         async def generate() -> str:
-            try:
-                prompt = (
-                    "You are AdaptX, a Solana expert with a calm and informative style. "
-                    f"Question: {question}"
-                )
-                return await mistral_client.generate_text(prompt, max_tokens=150)
-            except Exception as e:
-                logger.error(f"Error answering question: {e}")
-                return f"⚠️ Error answering question: {str(e)}"
+            prompt = f"You are AdaptX, a Solana expert. Answer: {question}"
+            return await mistral_client.generate_text(prompt, max_tokens=150)
         return await self.cached_call(key, generate, ttl=3600)
-
     async def analyze_transaction(self, tx_hash: str) -> Dict[str, Any]:
         if not is_valid_transaction_hash(tx_hash):
             return {"error": "Invalid transaction hash."}
         url = f"https://api.helius.xyz/v0/transactions/{tx_hash}?api-key={self.helius_api_key}"
-        logger.info(f"Fetching transaction data for {tx_hash}")
-        try:
-            async with self.session.get(url, timeout=15) as response:
-                response.raise_for_status()
-                tx_data = await response.json()
-            programs = tx_data.get('programs', [])
-            token_transfers = tx_data.get('tokenTransfers', [])
-            analysis = (
-                f"**Helius Transaction Analysis** for `{tx_hash}`\n"
-                f"• Description: {tx_data.get('description', 'N/A')}\n"
-                f"• Fee: {tx_data.get('fee', 0)/1e9:.4f} SOL\n"
-                f"• Status: {tx_data.get('status', 'N/A')}\n"
-                f"• Signers: {', '.join(tx_data.get('signers', []))}\n"
-                f"• Programs Involved: {', '.join(programs) if programs else 'None'}\n"
-                f"• Token Transfers: {len(token_transfers)} transfer(s)\n"
-                "Risk Assessment: Low (Verified by Helius)"
-            )
-            return {"analysis": analysis}
-        except Exception as e:
-            logger.error(f"Transaction analysis error for {tx_hash}: {e}")
-            return {"error": f"Analysis failed: {str(e)}"}
-
+        async with self.session.get(url, timeout=15) as response:
+            data = await response.json()
+            return {"analysis": f"Tx `{tx_hash}`\n• Fee: {data.get('fee', 0)/1e9:.4f} SOL"}
     async def analyze_wallet(self, wallet_address: str) -> str:
         if not is_valid_solana_address(wallet_address):
             return "Invalid wallet address."
-        url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/balances?api-key={self.helius_api_key}"
-        logger.info(f"Fetching wallet balances for {wallet_address}")
         try:
+            url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/balances?api-key={self.helius_api_key}"
             async with self.session.get(url, timeout=15) as response:
-                response.raise_for_status()
                 data = await response.json()
-            tokens = data.get('tokens', [])
-            sol_balance = data.get('nativeBalance', 0) / 1e9
-            analysis = (
-                f"**Wallet Analysis for `{wallet_address}`**\n"
-                f"• SOL Balance: {sol_balance:.4f} SOL\n"
-                f"• Token Holdings: {len(tokens)} token(s)\n"
-            )
-            for token in tokens[:5]:
-                analysis += f"  - {token['name']}: {token['amount'] / 10**token['decimals']:.4f}\n"
-            return analysis
+                sol_balance = data.get('nativeBalance', 0) / 1e9
+                return f"**Wallet `{wallet_address}`**\n• SOL: {sol_balance:.4f}"
         except Exception as e:
-            logger.error(f"Error analyzing wallet {wallet_address}: {e}")
-            return f"Error analyzing wallet: {str(e)}"
-
-    async def get_solana_stats(self) -> Dict[str, Any]:
+            logger.error(f"Helius analyze_wallet error: {e}")
+            try:
+                balance_resp = await self.solana_client.get_balance(Pubkey(wallet_address))
+                sol_balance = balance_resp.value / 1e9
+                return f"**Wallet `{wallet_address}`**\n• SOL: {sol_balance:.4f} (fallback)"
+            except Exception as e2:
+                logger.error(f"Fallback get_balance error: {e2}")
+                return "Error analyzing wallet balance."
+    async def get_solana_network_stats(self) -> str:
         url = f"https://api.helius.xyz/v0/metrics?api-key={self.helius_api_key}"
-        logger.info("Fetching Solana network metrics from Helius")
         try:
             async with self.session.get(url, timeout=10) as resp:
                 data = await resp.json()
-                return {
-                    "tps": data.get("tps", "N/A"),
-                    "transaction_count": data.get("transactionCount", "N/A"),
-                }
+                return f"**Solana Stats**\n• TPS: {data.get('tps', 'N/A')}"
         except Exception as e:
-            logger.error(f"Error fetching Helius metrics: {e}")
-            return {"tps": "N/A", "transaction_count": "N/A"}
-
-    async def get_solana_network_stats(self) -> str:
-        metrics = await self.get_solana_stats()
-        try:
-            epoch_info = await self.solana_client.get_epoch_info()
-            epoch_val = epoch_info.value.epoch
-            supply = await self.solana_client.get_supply()
-            total_supply = supply.value.total / 1e9
-            vote_accounts = await self.solana_client.get_vote_accounts()
-            validator_count = len(vote_accounts.value.current)
-            slot = await self.solana_client.get_slot()
-            block_height = slot.value
-        except Exception as e:
-            logger.error(f"Error fetching additional Solana stats: {e}")
-            epoch_val = total_supply = validator_count = block_height = "N/A"
-        return (
-            f"**Solana Network Stats:**\n"
-            f"• TPS: {metrics.get('tps', 'N/A')}\n"
-            f"• Transaction Count: {metrics.get('transaction_count', 'N/A')}\n"
-            f"• Block Height: {block_height}\n"
-            f"• Epoch: {epoch_val}\n"
-            f"• Total Supply: {total_supply:.2f} SOL\n"
-            f"• Validator Count: {validator_count}"
-        )
-
-    async def get_crypto_price_coingecko(self, crypto: str = "solana") -> str:
+            logger.error(f"Helius network stats error: {e}")
+            return "**Solana Stats**\n• TPS: N/A (error)"
+    async def get_crypto_price_coingecko(self, crypto: str) -> str:
         key = f"price:{crypto}"
         async def generate() -> str:
             url = f"https://api.coingecko.com/api/v3/coins/{crypto.lower()}"
-            logger.info(f"Fetching price data for {crypto} from CoinGecko")
-            try:
-                async with self.session.get(url, timeout=10) as response:
-                    data = await response.json()
+            async with self.session.get(url, timeout=10) as response:
+                data = await response.json()
                 if 'market_data' in data:
                     price = data['market_data']['current_price']['usd']
-                    market_cap = data['market_data']['market_cap']['usd']
-                    volume = data['market_data']['total_volume']['usd']
-                    return (
-                        f"**{crypto.title()} Stats:**\n"
-                        f"• Price: ${price:,}\n"
-                        f"• Market Cap: ${market_cap:,}\n"
-                        f"• 24h Volume: ${volume:,}"
-                    )
-                else:
-                    return f"Could not retrieve data for '{crypto}'."
-            except Exception as e:
-                logger.error(f"Error fetching price for {crypto}: {e}")
-                return f"Error fetching price: {str(e)}"
+                    return f"**{crypto.title()}**\n• Price: ${price:,}"
+                return f"No data for '{crypto}'."
         return await self.cached_call(key, generate, ttl=300)
-
     async def get_coingecko_id(self, token_mint: str) -> str:
         url = "https://api.coingecko.com/api/v3/coins/list?include_platform=true"
-        logger.info(f"Fetching CoinGecko ID for token mint {token_mint}")
-        try:
-            async with self.session.get(url, timeout=10) as response:
-                coins = await response.json()
-                for coin in coins:
-                    if coin.get("platforms", {}).get("solana") == token_mint:
-                        return coin["id"]
-                return None
-        except Exception as e:
-            logger.error(f"Error fetching CoinGecko coin list: {e}")
+        async with self.session.get(url, timeout=10) as response:
+            coins = await response.json()
+            for coin in coins:
+                if coin.get("platforms", {}).get("solana") == token_mint:
+                    return coin["id"]
             return None
-
     async def get_token_holder_count(self, token_mint: str) -> int:
         key = f"token_holders:{token_mint}"
         async def generate() -> int:
             url = f"https://api.helius.xyz/v0/token-accounts?api-key={self.helius_api_key}"
-            logger.info(f"Fetching token accounts for mint {token_mint} from Helius")
-            try:
-                async with self.session.post(url, json={"mint": token_mint}, timeout=15) as response:
-                    response.raise_for_status()
-                    accounts = await response.json()
-                unique_owners = set(account['owner'] for account in accounts)
-                return len(unique_owners)
-            except Exception as e:
-                logger.error(f"Error fetching token holders for {token_mint}: {e}")
-                return 0
+            async with self.session.post(url, json={"mint": token_mint}, timeout=15) as response:
+                response.raise_for_status()
+                accounts = await response.json()
+            unique_owners = set(account['owner'] for account in accounts)
+            return len(unique_owners)
         return await self.cached_call(key, generate, ttl=7200)
-
     async def get_validator_info(self, validator_address: str) -> Dict[str, Any]:
-        logger.info(f"Fetching validator info for {validator_address}")
         try:
             vote_accounts = await self.solana_client.get_vote_accounts()
             for validator in vote_accounts.value.current:
-                if validator.vote_pubkey == validator_address:
+                if str(validator.vote_pubkey) == validator_address:
                     return {
                         "stake": validator.activated_stake / 1e9,
                         "commission": validator.commission,
@@ -377,134 +256,115 @@ class AdaptX:
         except Exception as e:
             logger.error(f"Error fetching validator info: {e}")
             return None
-
     async def get_upcoming_events_twitter(self) -> List[Dict[str, str]]:
         if not TWITTER_BEARER_TOKEN:
-            logger.warning("Twitter Bearer Token not provided. Falling back to mock events.")
             return [{"date": "2023-10-01", "event": "Solana Breakpoint Conference"}]
         key = "twitter_events"
         async def generate() -> List[Dict[str, str]]:
             url = "https://api.twitter.com/2/tweets/search/recent"
             headers = {"Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"}
-            query = "from:Solana OR from:SolanaFndn event announcement -is:retweet"
-            params = {"query": query, "max_results": 10}
-            logger.info("Fetching upcoming Solana events from Twitter")
-            try:
-                async with self.session.get(url, headers=headers, params=params, timeout=10) as response:
-                    response.raise_for_status()
-                    data = await response.json()
+            params = {"query": "from:Solana OR from:SolanaFndn event announcement -is:retweet", "max_results": 10}
+            async with self.session.get(url, headers=headers, params=params, timeout=10) as response:
+                data = await response.json()
                 events = []
                 for tweet in data.get("data", []):
                     text = tweet["text"]
                     if "event" in text.lower() and "date" in text.lower():
                         events.append({"date": "N/A", "event": text[:100] + "..."})
                 return events if events else [{"date": "N/A", "event": "No recent events found."}]
-            except Exception as e:
-                logger.error(f"Error fetching Twitter events: {e}")
-                return [{"date": "N/A", "event": "Error fetching events."}]
         return await self.cached_call(key, generate, ttl=3600)
-
     async def get_nft_portfolio(self, wallet_address: str) -> str:
         if not is_valid_solana_address(wallet_address):
             return "Invalid wallet address."
         url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/nft-balances?api-key={self.helius_api_key}"
-        logger.info(f"Fetching NFT portfolio for {wallet_address}")
-        try:
-            async with self.session.get(url, timeout=15) as response:
-                response.raise_for_status()
-                data = await response.json()
+        async with self.session.get(url, timeout=15) as response:
+            data = await response.json()
             nfts = data.get("nfts", [])
-            analysis = f"**NFT Portfolio for `{wallet_address}`**\n• Total NFTs: {len(nfts)}\n"
-            for nft in nfts[:5]:
-                analysis += f"  - {nft.get('name', 'Unknown')} (Mint: {nft.get('mint', 'N/A')})\n"
-            return analysis
-        except Exception as e:
-            logger.error(f"Error fetching NFT portfolio for {wallet_address}: {e}")
-            return f"Error fetching NFT portfolio: {str(e)}"
-
+            return f"**NFTs for `{wallet_address}`**\n• Total: {len(nfts)}"
     async def get_staking_analysis(self, wallet_address: str) -> str:
         if not is_valid_solana_address(wallet_address):
             return "Invalid wallet address."
         url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/staking-accounts?api-key={self.helius_api_key}"
-        logger.info(f"Fetching staking accounts for {wallet_address}")
-        try:
-            async with self.session.get(url, timeout=15) as response:
-                response.raise_for_status()
-                data = await response.json()
+        async with self.session.get(url, timeout=15) as response:
+            data = await response.json()
             stakes = data.get("stakingAccounts", [])
-            analysis = f"**Staking Analysis for `{wallet_address}`**\n• Total Staked Accounts: {len(stakes)}\n"
-            for stake in stakes[:5]:
-                analysis += f"  - Stake Account: {stake.get('account', 'N/A')} | Amount: {stake.get('amount', 0)/1e9:.2f} SOL\n"
-            return analysis
-        except Exception as e:
-            logger.error(f"Error fetching staking analysis for {wallet_address}: {e}")
-            return f"Error fetching staking analysis: {str(e)}"
-
+            return f"**Staking for `{wallet_address}`**\n• Total: {len(stakes)}"
     async def get_recent_activity(self, wallet_address: str) -> str:
         if not is_valid_solana_address(wallet_address):
             return "Invalid wallet address."
         url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/transactions?api-key={self.helius_api_key}"
-        logger.info(f"Fetching recent activity for {wallet_address}")
-        try:
-            async with self.session.get(url, timeout=15) as response:
-                response.raise_for_status()
-                data = await response.json()
+        async with self.session.get(url, timeout=15) as response:
+            data = await response.json()
             txs = data[:5]
-            analysis = f"**Recent Activity for `{wallet_address}`**\n• Total Transactions: {len(data)}\n"
-            for tx in txs:
-                analysis += f"  - Tx Hash: {tx.get('signature', 'N/A')[:8]}... | Fee: {tx.get('fee', 0)/1e9:.4f} SOL\n"
-            return analysis
-        except Exception as e:
-            logger.error(f"Error fetching recent activity for {wallet_address}: {e}")
-            return f"Error fetching recent activity: {str(e)}"
-
+            return f"**Activity for `{wallet_address}`**\n• Recent Txs: {len(txs)}"
     async def get_ecosystem_insights(self) -> str:
-        logger.info("Generating Solana ecosystem insights")
-        try:
-            stats = await self.get_solana_network_stats()
-            trending_tokens = await self.get_trending_tokens()
-            top_validators = await self.get_top_validators()
-            events = await self.get_upcoming_events_twitter()
-            insights = "**Solana Ecosystem Insights:**\n\n"
-            insights += f"**Network Overview:**\n{stats}\n\n"
-            insights += "**Trending Tokens:**\n" + (trending_tokens or "• No trending tokens available.\n") + "\n"
-            insights += "**Top Validators:**\n" + (top_validators or "• No validator data available.\n") + "\n"
-            insights += "**Upcoming Events:**\n"
-            for event in events[:3]:
-                insights += f"• {event['date']}: {event['event']}\n"
-            return insights
-        except Exception as e:
-            logger.error(f"Error generating ecosystem insights: {e}")
-            return f"Error generating ecosystem insights: {str(e)}"
-
+        stats = await self.get_solana_network_stats()
+        return f"**Ecosystem Insights**\n{stats}"
     async def get_trending_tokens(self) -> str:
-        logger.info("Fetching trending tokens (mocked)")
         return "• BONK: +15% volume\n• RAY: +10% holders"
-
     async def get_top_validators(self) -> str:
-        logger.info("Fetching top validators")
         try:
             vote_accounts = await self.solana_client.get_vote_accounts()
             validators = sorted(vote_accounts.value.current, key=lambda v: v.activated_stake, reverse=True)[:3]
-            analysis = ""
-            for val in validators:
-                analysis += f"• {val.vote_pubkey[:8]}...: {val.activated_stake/1e9:.2f} SOL stake, {val.commission}% commission\n"
-            return analysis
+            return "\n".join([f"• {str(v.vote_pubkey)[:8]}...: {v.activated_stake/1e9:.2f} SOL" for v in validators])
+        except Exception:
+            return "N/A"
+    async def prepare_transaction(self, sender_wallet: str, amount: float, token: str, destination: str) -> Dict[str, Any]:
+        sender = Pubkey(sender_wallet)
+        dest = Pubkey(destination)
+        if token == "SOL":
+            lamports = int(amount * 1_000_000_000)
+            tx = Transaction()
+            tx.add(
+                transfer(TransferParams(
+                    from_pubkey=sender,
+                    to_pubkey=dest,
+                    lamports=lamports
+                ))
+            )
+            recent_blockhash_resp = await self.solana_client.get_latest_blockhash()
+            recent_blockhash = recent_blockhash_resp.value.blockhash
+            tx.recent_blockhash = recent_blockhash
+            serialized_tx = base58.b58encode(bytes(tx)).decode('utf-8')
+            return {"serialized_tx": serialized_tx, "amount": lamports, "token": "SOL"}
+        else:
+            raise NotImplementedError("SPL token transfers require token account setup.")
+    async def verify_and_execute_transaction(self, signed_tx: str, expected_amount: float, token: str) -> str:
+        try:
+            tx_bytes = base58.b58decode(signed_tx)
+            tx = Transaction.deserialize(tx_bytes)
+            result = await self.solana_client.send_transaction(tx, opts=Confirmed)
+            tx_sig = str(result.value)
+            tx_info = await self.solana_client.get_transaction(tx_sig)
+            if token == "SOL":
+                transfer_instruction = tx_info.value.transaction.transaction.message.instructions[0]
+                if str(transfer_instruction.accounts[1]) == str(self.bot_pubkey) and transfer_instruction.data.amount == int(expected_amount * 1_000_000_000):
+                    return tx_sig
+            raise ValueError("Transaction verification failed.")
         except Exception as e:
-            logger.error(f"Error fetching top validators: {e}")
+            logger.error(f"Transaction execution error: {e}")
             return None
 
-# Background Tasks
-solana_stats_cache = {}
-tracked_wallets = {}
+# --- Background Tasks ---
+
+@tasks.loop(seconds=30)
+async def collect_network_stats():
+    stats_str = await bot.adaptx.get_solana_network_stats()
+    try:
+        tps = float(stats_str.split("TPS:")[1].strip())
+    except Exception:
+        tps = 0.0
+    network_stats_history.append({"timestamp": datetime.utcnow().timestamp(), "tps": tps})
+    cutoff = datetime.utcnow().timestamp() - 600
+    while network_stats_history and network_stats_history[0]["timestamp"] < cutoff:
+        network_stats_history.pop(0)
 
 @tasks.loop(minutes=5)
 async def refresh_solana_stats():
-    stats = await bot.adaptx.get_solana_stats()
-    solana_stats_cache.update(stats)
+    stats = await bot.adaptx.get_solana_network_stats()
     logger.info("Refreshed Solana stats cache")
 
-@tasks.loop(minutes=15)
+@tasks.loop(minutes=1)
 async def check_wallet_updates():
     logger.info("Checking wallet updates")
     cursor = bot.db.cursor()
@@ -518,68 +378,42 @@ async def check_wallet_updates():
             if channel:
                 await channel.send(f"<@{user_id}>, your tracked wallet `{wallet}` has updates:\n{analysis}")
             cursor.execute("UPDATE wallet_tracking SET last_analysis = ? WHERE wallet_address = ?", (analysis, wallet))
+    for user_id, wallets in realtime_wallet_subscriptions.items():
+        for wallet in wallets:
+            analysis = await bot.adaptx.analyze_wallet(wallet)
+            user = await bot.fetch_user(user_id)
+            await user.send(f"[Realtime Update] Wallet `{wallet}`: {analysis}")
     bot.db.commit()
 
 @tasks.loop(minutes=1)
 async def check_price_alerts():
     cursor = bot.db.cursor()
-    cursor.execute("SELECT * FROM alerts")
+    cursor.execute("SELECT user_id, token, condition, value FROM alerts")
     for user_id, token, condition, value in cursor.fetchall():
-        price = await get_token_price(token)
-        if (condition == "above" and price > value) or (condition == "below" and price < value):
-            user = await bot.fetch_user(user_id)
-            await user.send(f"🚨 {token} is {condition} ${value}! Current price: ${price}")
-            cursor.execute("DELETE FROM alerts WHERE user_id = ? AND token = ?", (user_id, token))
-            bot.db.commit()
-
-async def get_token_price(token: str) -> float:
-    # Mock function: replace with real API (e.g., CoinGecko)
-    return 150.0 if token == "SOL" else 0.0
-
-# Event Handlers
-@bot.event
-async def on_ready():
-    try:
-        await bot.tree.sync()
-        logger.info(f"{bot.user} is ready and commands synced!")
-        refresh_solana_stats.start()
-        check_wallet_updates.start()
-        check_price_alerts.start()
-    except Exception as e:
-        logger.error(f"Error syncing commands: {e}")
-
-# Multilang Cog
-class MultilangCog(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-        self.translator = Translator()
-
-    @commands.command(name="translate")
-    async def translate(self, ctx, language: str, *, text: str):
-        """Translate text into the specified language."""
+        price_info = await bot.adaptx.get_crypto_price_coingecko(token.lower())
         try:
-            translation = self.translator.translate(text, dest=language)
-            await ctx.send(translation.text)
+            price = float(price_info.split("Price: $")[1].replace(",", ""))
+            if (condition == "above" and price > value) or (condition == "below" and price < value):
+                user = await bot.fetch_user(user_id)
+                await user.send(f"🚨 {token} is {condition} ${value}! Current price: ${price}")
+                cursor.execute("DELETE FROM alerts WHERE user_id = ? AND token = ?", (user_id, token))
         except Exception as e:
-            logger.error(f"Translation error: {e}")
-            await ctx.send("Translation failed. Please check the language code and try again.")
+            logger.error(f"Error parsing price for alert: {e}")
+    bot.db.commit()
 
-# User Points System
+# --- Command Definitions ---
+
+# Existing Commands (Points)
 @bot.command(name="points")
 async def points(ctx):
-    """Display the user's points."""
     user_id = ctx.author.id
     cursor = bot.db.cursor()
     cursor.execute("SELECT points FROM users WHERE id = ?", (user_id,))
     result = cursor.fetchone()
-    if result:
-        await ctx.send(f"You have {result[0]} points!")
-    else:
-        await ctx.send("You don't have any points yet.")
+    await ctx.send(f"You have {result[0] if result else 0} points!")
 
 @bot.command(name="addpoints")
 async def addpoints(ctx, points: int):
-    """Add points to the user."""
     user_id = ctx.author.id
     cursor = bot.db.cursor()
     cursor.execute("SELECT points FROM users WHERE id = ?", (user_id,))
@@ -588,11 +422,12 @@ async def addpoints(ctx, points: int):
         new_points = result[0] + points
         cursor.execute("UPDATE users SET points = ? WHERE id = ?", (new_points, user_id))
     else:
+        new_points = points
         cursor.execute("INSERT INTO users (id, points) VALUES (?, ?)", (user_id, points))
     bot.db.commit()
-    await ctx.send(f"{points} points added! You now have {new_points if result else points} points.")
+    await ctx.send(f"{points} points added! You now have {new_points} points.")
 
-# Slash Commands with Rate Limiting
+# Core Slash Commands
 @bot.tree.command(name="idea", description="Generate a tweet idea about Solana")
 @app_commands.describe(topic="The topic for the tweet")
 @commands.cooldown(1, 60, commands.BucketType.user)
@@ -615,10 +450,7 @@ async def ask(interaction: discord.Interaction, question: str):
 async def analyze(interaction: discord.Interaction, tx_hash: str):
     await interaction.response.defer()
     result = await bot.adaptx.analyze_transaction(tx_hash)
-    if "error" in result:
-        await interaction.followup.send(result["error"])
-    else:
-        await interaction.followup.send(result["analysis"])
+    await interaction.followup.send(result.get("analysis", result.get("error", "Error analyzing transaction.")))
 
 @bot.tree.command(name="walletanalysis", description="Analyze a Solana wallet")
 @app_commands.describe(wallet_address="The wallet address to analyze")
@@ -658,6 +490,7 @@ async def governance(interaction: discord.Interaction):
 async def usecases(interaction: discord.Interaction):
     await interaction.response.send_message("Solana use cases will be detailed soon!")
 
+# Enhanced Commands
 @bot.tree.command(name="tokeninfo", description="Get information about a Solana token")
 @app_commands.describe(token_mint="The mint address of the token")
 @commands.cooldown(1, 60, commands.BucketType.user)
@@ -703,14 +536,11 @@ async def validator(interaction: discord.Interaction, validator_address: str):
         return
     info = await bot.adaptx.get_validator_info(validator_address)
     if info:
-        stake = info['stake']
-        commission = info['commission']
-        credits = info['epoch_credits']
         await interaction.followup.send(
             f"**Validator Info for `{validator_address}`:**\n"
-            f"• Stake: {stake:.2f} SOL\n"
-            f"• Commission: {commission}%\n"
-            f"• Latest Epoch Credits: {credits:,}\n"
+            f"• Stake: {info['stake']:.2f} SOL\n"
+            f"• Commission: {info['commission']}%\n"
+            f"• Latest Epoch Credits: {info['epoch_credits']:,}\n"
         )
     else:
         await interaction.followup.send("Validator not found.", ephemeral=True)
@@ -794,131 +624,65 @@ async def ecosystem(interaction: discord.Interaction):
     insights = await bot.adaptx.get_ecosystem_insights()
     await interaction.followup.send(insights)
 
-# Experimental Features (Set 1)
-@bot.tree.command(name="soundboard", description="Play a Solana-themed sound in voice channel")
-@app_commands.describe(sound="The sound to play: beep, confirm")
+# Experimental Features (Set 1) - Placeholder Implementations
+@bot.tree.command(name="soundboard", description="Play a sound in voice channel (placeholder)")
 @commands.cooldown(1, 60, commands.BucketType.user)
-async def soundboard(interaction: discord.Interaction, sound: str):
-    if not interaction.user.voice:
-        await interaction.response.send_message("You need to be in a voice channel!", ephemeral=True)
-        return
-    channel = interaction.user.voice.channel
-    voice_client = await channel.connect()
-    if sound == "beep":
-        voice_client.play(FFmpegPCMAudio("beep.mp3"))
-        await interaction.response.send_message(f"Playing {sound} sound!", ephemeral=True)
-    elif sound == "confirm":
-        voice_client.play(FFmpegPCMAudio("confirm.mp3"))
-        await interaction.response.send_message(f"Playing {sound} sound!", ephemeral=True)
-    else:
-        await interaction.response.send_message("Available sounds: beep, confirm", ephemeral=True)
+async def soundboard(interaction: discord.Interaction):
+    await interaction.response.send_message("Soundboard feature is under development.")
 
-@bot.tree.command(name="setalert", description="Set a price alert for a Solana token")
-@app_commands.describe(token="Token symbol (e.g., SOL)", condition="above or below", value="Price threshold")
+@bot.tree.command(name="setalert", description="Set a price alert for a token")
+@app_commands.describe(token="Token symbol", condition="above/below", value="Price threshold")
 @commands.cooldown(1, 60, commands.BucketType.user)
-async def set_alert(interaction: discord.Interaction, token: str, condition: str, value: float):
+async def setalert(interaction: discord.Interaction, token: str, condition: str, value: float):
     if condition not in ["above", "below"]:
         await interaction.response.send_message("Condition must be 'above' or 'below'.", ephemeral=True)
         return
     cursor = bot.db.cursor()
-    cursor.execute("INSERT INTO alerts VALUES (?, ?, ?, ?)", (interaction.user.id, token, condition, value))
+    cursor.execute("INSERT INTO alerts (user_id, token, condition, value) VALUES (?, ?, ?, ?)",
+                   (interaction.user.id, token.upper(), condition, value))
     bot.db.commit()
     await interaction.response.send_message(f"Alert set for {token} {condition} ${value}.")
 
-@bot.tree.command(name="nftgallery", description="Display your Solana NFTs")
-@app_commands.describe(wallet="Your Solana wallet address")
+@bot.tree.command(name="nftgallery", description="Display NFT gallery (placeholder)")
 @commands.cooldown(1, 60, commands.BucketType.user)
-async def nft_gallery(interaction: discord.Interaction, wallet: str):
-    if not is_valid_solana_address(wallet):
-        await interaction.response.send_message("Invalid wallet address.", ephemeral=True)
-        return
-    url = f"https://api.helius.xyz/v0/addresses/{wallet}/nft-balances?api-key={HELIUS_API_KEY}"
-    async with bot.adaptx.session.get(url) as resp:
-        data = await resp.json()
-        nfts = data.get("nfts", [])[:5]
-        if nfts:
-            gallery = "\n".join([f"- {nft['name']} (Mint: {nft['mint']})" for nft in nfts])
-            await interaction.response.send_message(f"**NFT Gallery for {wallet}**\n{gallery}")
-        else:
-            await interaction.response.send_message("No NFTs found.")
+async def nftgallery(interaction: discord.Interaction):
+    await interaction.response.send_message("NFT gallery feature is under development.")
 
-@bot.tree.command(name="stakingcalc", description="Calculate potential staking rewards")
-@app_commands.describe(stake="Amount to stake in SOL", validator="Validator address")
+@bot.tree.command(name="stakingcalc", description="Calculate staking rewards (placeholder)")
 @commands.cooldown(1, 60, commands.BucketType.user)
-async def staking_calc(interaction: discord.Interaction, stake: float, validator: str):
-    validator_info = await bot.adaptx.get_validator_info(validator)
-    if not validator_info:
-        await interaction.response.send_message("Validator not found.", ephemeral=True)
-        return
-    apr = 7.5  # Mock APR
-    rewards = stake * (apr / 100)
-    await interaction.response.send_message(f"Staking {stake} SOL with {validator} could yield ~{rewards:.2f} SOL annually (APR: {apr}%).")
+async def stakingcalc(interaction: discord.Interaction):
+    await interaction.response.send_message("Staking calculator is under development.")
 
-@bot.tree.command(name="decode", description="Decode a Solana transaction")
-@app_commands.describe(tx_signature="Transaction signature")
+@bot.tree.command(name="decode", description="Decode a Solana transaction (placeholder)")
 @commands.cooldown(1, 60, commands.BucketType.user)
-async def decode_tx(interaction: discord.Interaction, tx_signature: str):
-    if not is_valid_transaction_hash(tx_signature):
-        await interaction.response.send_message("Invalid transaction hash.", ephemeral=True)
-        return
-    tx = await bot.adaptx.solana_client.get_transaction(tx_signature)
-    if tx.value:
-        accounts = tx.value.transaction.message.account_keys
-        decoded = f"Tx {tx_signature}: Involved accounts - {', '.join(accounts)}"
-        await interaction.response.send_message(f"**Decoded Transaction**\n{decoded}")
-    else:
-        await interaction.response.send_message("Transaction not found.")
+async def decode(interaction: discord.Interaction):
+    await interaction.response.send_message("Transaction decode feature is under development.")
 
-# New Experimental Features (Set 2)
-@bot.tree.command(name="solpoll", description="Create a Solana-themed poll")
-@app_commands.describe(question="Poll question", options="Options separated by commas")
+# New Experimental Features (Set 2) - Placeholder Implementations
+@bot.tree.command(name="solpoll", description="Create a Solana-themed poll (placeholder)")
 @commands.cooldown(1, 60, commands.BucketType.user)
-async def solpoll(interaction: discord.Interaction, question: str, options: str):
-    opts = [opt.strip() for opt in options.split(",")][:10]  # Limit to 10 options
-    if len(opts) < 2:
-        await interaction.response.send_message("Please provide at least 2 options.", ephemeral=True)
-        return
-    emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"][:len(opts)]
-    poll_text = f"**Poll: {question}**\n" + "\n".join([f"{emoji} {opt}" for emoji, opt in zip(emojis, opts)])
-    await interaction.response.send_message(poll_text)
-    message = await interaction.original_response()
-    for emoji in emojis:
-        await message.add_reaction(emoji)
+async def solpoll(interaction: discord.Interaction):
+    await interaction.response.send_message("Poll feature is under development.")
 
-@bot.tree.command(name="tokenlottery", description="Enter a token lottery (mock)")
-@app_commands.describe(token="Token symbol", amount="Amount to enter")
+@bot.tree.command(name="tokenlottery", description="Enter a token lottery (placeholder)")
 @commands.cooldown(1, 60, commands.BucketType.user)
-async def tokenlottery(interaction: discord.Interaction, token: str, amount: float):
-    user_id = interaction.user.id
-    cursor = bot.db.cursor()
-    cursor.execute("INSERT INTO lottery (user_id, token, amount) VALUES (?, ?, ?)", (user_id, token, amount))
-    bot.db.commit()
-    await interaction.response.send_message(f"You've entered the {token} lottery with {amount} tokens! Winner announced soon (mock).")
+async def tokenlottery(interaction: discord.Interaction):
+    await interaction.response.send_message("Token lottery is under development.")
 
-@bot.tree.command(name="validatorrank", description="Show top Solana validators")
+@bot.tree.command(name="validatorrank", description="Rank validators (placeholder)")
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def validatorrank(interaction: discord.Interaction):
-    ranking = await bot.adaptx.get_top_validators()
-    if ranking:
-        await interaction.response.send_message(f"**Top Validators:**\n{ranking}")
-    else:
-        await interaction.response.send_message("Unable to fetch validator rankings.")
+    await interaction.response.send_message("Validator ranking is under development.")
 
-@bot.tree.command(name="nftdrop", description="Announce a mock NFT drop")
-@app_commands.describe(name="NFT collection name", quantity="Number of NFTs")
+@bot.tree.command(name="nftdrop", description="Announce an NFT drop (placeholder)")
 @commands.cooldown(1, 60, commands.BucketType.user)
-async def nftdrop(interaction: discord.Interaction, name: str, quantity: int):
-    await interaction.response.send_message(f"🎉 **NFT Drop Alert**: {quantity} NFTs from the '{name}' collection are dropping soon! (Mock)")
+async def nftdrop(interaction: discord.Interaction):
+    await interaction.response.send_message("NFT drop feature is under development.")
 
-@bot.tree.command(name="solchat", description="Join a Solana-themed voice chat")
+@bot.tree.command(name="solchat", description="Initiate a Solana chat (placeholder)")
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def solchat(interaction: discord.Interaction):
-    if not interaction.user.voice:
-        await interaction.response.send_message("You need to be in a voice channel!", ephemeral=True)
-        return
-    channel = interaction.user.voice.channel
-    voice_client = await channel.connect()
-    await interaction.response.send_message(f"Connected to {channel.name} for a Solana chat! Say hi!")
+    await interaction.response.send_message("Solana chat is under development.")
 
 # New Features (Set 3)
 @bot.tree.command(name="tokenmetadata", description="Get metadata for a Solana token")
@@ -944,7 +708,7 @@ async def tokenmetadata(interaction: discord.Interaction, token_mint: str):
             else:
                 await interaction.followup.send("Metadata not found.", ephemeral=True)
     except Exception as e:
-        logger.error(f"Error fetching token metadata for {token_mint}: {e}")
+        logger.error(f"Error fetching token metadata: {e}")
         await interaction.followup.send("Error fetching token metadata.", ephemeral=True)
 
 @bot.tree.command(name="programaccounts", description="List accounts owned by a program")
@@ -956,13 +720,10 @@ async def programaccounts(interaction: discord.Interaction, program_id: str):
         await interaction.followup.send("Invalid program ID.", ephemeral=True)
         return
     try:
-        accounts = await bot.adaptx.solana_client.get_program_accounts(program_id)
-        if accounts.value:
-            await interaction.followup.send(f"Found {len(accounts.value)} accounts for program {program_id}.")
-        else:
-            await interaction.followup.send("No accounts found.", ephemeral=True)
+        accounts = await bot.adaptx.solana_client.get_program_accounts(Pubkey(program_id))
+        await interaction.followup.send(f"Found {len(accounts.value)} accounts for program `{program_id}`.")
     except Exception as e:
-        logger.error(f"Error fetching program accounts for {program_id}: {e}")
+        logger.error(f"Error fetching program accounts: {e}")
         await interaction.followup.send("Error fetching program accounts.", ephemeral=True)
 
 @bot.tree.command(name="blockinfo", description="Get information about a Solana block")
@@ -976,13 +737,13 @@ async def blockinfo(interaction: discord.Interaction, block_number: int):
             await interaction.followup.send(
                 f"**Block {block_number} Info**\n"
                 f"• Transactions: {len(block.value.transactions)}\n"
-                f"• Block Time: {block.value.block_time}\n"
-                f"• Block Hash: {block.value.blockhash[:8]}..."
+                f"• Block Time: {datetime.fromtimestamp(block.value.block_time).strftime('%Y-%m-%d %H:%M:%S') if block.value.block_time else 'N/A'}\n"
+                f"• Block Hash: {str(block.value.blockhash)[:8]}..."
             )
         else:
             await interaction.followup.send("Block not found.", ephemeral=True)
     except Exception as e:
-        logger.error(f"Error fetching block info for {block_number}: {e}")
+        logger.error(f"Error fetching block info: {e}")
         await interaction.followup.send("Error fetching block info.", ephemeral=True)
 
 @bot.tree.command(name="accountinfo", description="Get information about a Solana account")
@@ -994,18 +755,18 @@ async def accountinfo(interaction: discord.Interaction, account_address: str):
         await interaction.followup.send("Invalid account address.", ephemeral=True)
         return
     try:
-        account = await bot.adaptx.solana_client.get_account_info(account_address)
+        account = await bot.adaptx.solana_client.get_account_info(Pubkey(account_address))
         if account.value:
             await interaction.followup.send(
-                f"**Account Info for {account_address}**\n"
+                f"**Account Info for `{account_address}`**\n"
                 f"• Balance: {account.value.lamports / 1e9:.4f} SOL\n"
-                f"• Owner: {account.value.owner[:8]}...\n"
+                f"• Owner: {str(account.value.owner)[:8]}...\n"
                 f"• Executable: {'Yes' if account.value.executable else 'No'}"
             )
         else:
             await interaction.followup.send("Account not found.", ephemeral=True)
     except Exception as e:
-        logger.error(f"Error fetching account info for {account_address}: {e}")
+        logger.error(f"Error fetching account info: {e}")
         await interaction.followup.send("Error fetching account info.", ephemeral=True)
 
 @bot.tree.command(name="leaderboard", description="Show top Solana validators by stake")
@@ -1013,10 +774,7 @@ async def accountinfo(interaction: discord.Interaction, account_address: str):
 async def leaderboard(interaction: discord.Interaction):
     await interaction.response.defer()
     top_validators = await bot.adaptx.get_top_validators()
-    if top_validators:
-        await interaction.followup.send(f"**Top Validators by Stake:**\n{top_validators}")
-    else:
-        await interaction.followup.send("Unable to fetch validator data.", ephemeral=True)
+    await interaction.followup.send(f"**Top Validators by Stake:**\n{top_validators}")
 
 @bot.tree.command(name="solanagames", description="Start a Solana trivia game")
 @commands.cooldown(1, 60, commands.BucketType.user)
@@ -1046,10 +804,7 @@ async def solanagames(interaction: discord.Interaction):
 async def memegenerator(interaction: discord.Interaction, top_text: str, bottom_text: str):
     await interaction.response.defer()
     try:
-        from PIL import Image, ImageDraw, ImageFont
-        import io
-        template_path = "solana_meme_template.jpg"  # Ensure you have a template image
-        img = Image.open(template_path)
+        img = Image.open(r"C:\Users\ckdsi\Desktop\AdaptX\solana_meme_template.jpg")
         draw = ImageDraw.Draw(img)
         font = ImageFont.load_default()
         draw.text((10, 10), top_text.upper(), fill="white", font=font)
@@ -1058,11 +813,13 @@ async def memegenerator(interaction: discord.Interaction, top_text: str, bottom_
         img.save(buffer, format="PNG")
         buffer.seek(0)
         await interaction.followup.send(file=discord.File(buffer, "meme.png"))
+    except FileNotFoundError:
+        await interaction.followup.send("Meme template not found. Please ensure 'solana_meme_template.jpg' exists.", ephemeral=True)
     except Exception as e:
         logger.error(f"Error generating meme: {e}")
-        await interaction.followup.send("Error generating meme. Ensure template exists.", ephemeral=True)
+        await interaction.followup.send("Error generating meme.", ephemeral=True)
 
-@bot.tree.command(name="snsresolve", description="Resolve a Solana Name Service domain")
+@bot.tree.command(name="snsresolve", description="Resolve a Solana Name Service domain (placeholder)")
 @app_commands.describe(domain="SNS domain (e.g., example.sol)")
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def snsresolve(interaction: discord.Interaction, domain: str):
@@ -1070,17 +827,14 @@ async def snsresolve(interaction: discord.Interaction, domain: str):
     if not domain.endswith(".sol"):
         await interaction.followup.send("Please provide a .sol domain.", ephemeral=True)
         return
-    # Mock SNS resolution (replace with actual implementation using SNS SDK)
-    resolved_address = "ExampleWalletAddress"
-    await interaction.followup.send(f"{domain} resolves to {resolved_address}")
+    await interaction.followup.send(f"{domain} resolves to [Placeholder Address] (SNS resolution not fully implemented).")
 
 @bot.tree.command(name="swapestimate", description="Estimate a token swap")
 @app_commands.describe(amount="Amount to swap", token_in="Input token", token_out="Output token")
 @commands.cooldown(1, 60, commands.BucketType.user)
 async def swapestimate(interaction: discord.Interaction, amount: float, token_in: str, token_out: str):
     await interaction.response.defer()
-    # Mock swap estimation (replace with actual implementation using Jupiter or similar)
-    output = amount * 0.98  # Assume 2% slippage
+    output = amount * 0.98  # Simple 2% slippage simulation
     await interaction.followup.send(
         f"**Swap Estimate**\n"
         f"• Input: {amount} {token_in}\n"
@@ -1095,21 +849,366 @@ async def solpay(interaction: discord.Interaction, recipient: str, amount: float
     if not is_valid_solana_address(recipient):
         await interaction.followup.send("Invalid recipient address.", ephemeral=True)
         return
-    # Generate Solana Pay URL
     solpay_url = f"solana:{recipient}?amount={amount}&label={label.replace(' ', '%20')}"
     await interaction.followup.send(f"**Solana Pay Link**: {solpay_url}")
 
-# Main Entry Point
+# Prediction Markets
+@bot.tree.command(name="linkwallet", description="Link your Solana wallet to your Discord account")
+@app_commands.describe(wallet="Your Solana wallet address")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def linkwallet(interaction: discord.Interaction, wallet: str):
+    await interaction.response.defer()
+    if not is_valid_solana_address(wallet):
+        await interaction.followup.send("Invalid wallet address.", ephemeral=True)
+        return
+    cursor = bot.db.cursor()
+    cursor.execute("UPDATE users SET wallet = ? WHERE id = ?", (wallet, interaction.user.id))
+    if cursor.rowcount == 0:
+        cursor.execute("INSERT INTO users (id, wallet) VALUES (?, ?)", (interaction.user.id, wallet))
+    bot.db.commit()
+    await interaction.followup.send(f"Wallet `{wallet}` linked to your account.")
+
+@bot.tree.command(name="createprediction", description="Create a prediction market with options")
+@app_commands.describe(title="Prediction title", options="Comma-separated options", duration="Duration in hours")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def createprediction(interaction: discord.Interaction, title: str, options: str, duration: float):
+    await interaction.response.defer()
+    options_list = [opt.strip() for opt in options.split(",")]
+    if len(options_list) < 2:
+        await interaction.followup.send("Provide at least 2 options.", ephemeral=True)
+        return
+    cursor = bot.db.cursor()
+    cursor.execute("SELECT wallet FROM users WHERE id = ?", (interaction.user.id,))
+    creator_wallet = cursor.fetchone()
+    if not creator_wallet or not creator_wallet[0]:
+        await interaction.followup.send("Link your wallet first with /linkwallet.", ephemeral=True)
+        return
+    end_time = datetime.utcnow() + timedelta(hours=duration)
+    image_url = None
+    if interaction.data.get('attachments'):
+        image_url = interaction.data['attachments'][0]['url']
+    cursor.execute(
+        "INSERT INTO predictions (title, creator_id, creator_wallet, options, end_time, status, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (title, interaction.user.id, creator_wallet[0], ",".join(options_list), end_time.timestamp(), "open", image_url)
+    )
+    bot.db.commit()
+    prediction_id = cursor.lastrowid
+    embed = Embed(title=f"Prediction #{prediction_id}: {title}", description="Options:")
+    for i, opt in enumerate(options_list, 1):
+        embed.add_field(name=f"{i}. {opt}", value="Wager with /placewager", inline=False)
+    if image_url:
+        embed.set_image(url=image_url)
+    await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="placewager", description="Place a wager on a prediction with SOL, JUP, or BONK")
+@app_commands.describe(prediction_id="Prediction ID", token="SOL, JUP, or BONK", amount="Amount to wager", option="Option number")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def placewager(interaction: discord.Interaction, prediction_id: int, token: str, amount: float, option: int):
+    await interaction.response.defer()
+    token = token.upper()
+    if token not in ["SOL", "JUP", "BONK"]:
+        await interaction.followup.send("Invalid token. Use SOL, JUP, or BONK.", ephemeral=True)
+        return
+    cursor = bot.db.cursor()
+    cursor.execute("SELECT options, status, creator_wallet FROM predictions WHERE id = ?", (prediction_id,))
+    pred = cursor.fetchone()
+    if not pred or pred[1] != "open":
+        await interaction.followup.send("Prediction not found or closed.", ephemeral=True)
+        return
+    options = pred[0].split(",")
+    if not (1 <= option <= len(options)):
+        await interaction.followup.send("Invalid option number.", ephemeral=True)
+        return
+    cursor.execute("SELECT wallet FROM users WHERE id = ?", (interaction.user.id,))
+    user_wallet = cursor.fetchone()
+    if not user_wallet or not user_wallet[0]:
+        await interaction.followup.send("Link your wallet first with /linkwallet.", ephemeral=True)
+        return
+    tx_data = await bot.adaptx.prepare_transaction(user_wallet[0], amount, token, pred[2])
+    await interaction.followup.send(
+        f"Please sign this transaction with your wallet (e.g., Phantom):\n"
+        f"Serialized Tx: `{tx_data['serialized_tx']}`\n"
+        f"Amount: {amount} {token}\n"
+        f"Reply with the signed transaction string to confirm."
+    )
+    def check(m):
+        return m.author == interaction.user and m.channel == interaction.channel
+    try:
+        msg = await bot.wait_for("message", check=check, timeout=300)
+        signed_tx = msg.content.strip()
+        tx_sig = await bot.adaptx.verify_and_execute_transaction(signed_tx, amount, token)
+        if tx_sig:
+            cursor.execute(
+                "INSERT INTO wagers (user_id, prediction_id, token, amount, option, wallet, tx_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (interaction.user.id, prediction_id, token, amount, option, user_wallet[0], tx_sig)
+            )
+            bot.db.commit()
+            await interaction.followup.send(f"Wager of {amount} {token} placed on option {option}. Tx: `{tx_sig}`")
+        else:
+            await interaction.followup.send("Transaction verification failed.", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("Wager timed out. Please sign within 5 minutes.", ephemeral=True)
+
+@bot.tree.command(name="viewpredictions", description="View active predictions")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def viewpredictions(interaction: discord.Interaction):
+    await interaction.response.defer()
+    cursor = bot.db.cursor()
+    cursor.execute("SELECT id, title, options, end_time, image_url FROM predictions WHERE status = 'open'")
+    preds = cursor.fetchall()
+    if not preds:
+        await interaction.followup.send("No active predictions.")
+        return
+    embed = Embed(title="Active Predictions", description="Current markets:")
+    for pred in preds:
+        options = pred[2].split(",")
+        embed.add_field(name=f"#{pred[0]}: {pred[1]}", value=f"Options: {', '.join(options)}\nEnds: <t:{int(pred[3])}:R>", inline=False)
+        if pred[4]:
+            embed.set_image(url=pred[4])
+    await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="settleprediction", description="Settle a prediction and distribute winnings")
+@app_commands.describe(prediction_id="Prediction ID", winning_option="Winning option number")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def settleprediction(interaction: discord.Interaction, prediction_id: int, winning_option: int):
+    await interaction.response.defer()
+    cursor = bot.db.cursor()
+    cursor.execute("SELECT creator_id, options, status FROM predictions WHERE id = ?", (prediction_id,))
+    pred = cursor.fetchone()
+    if not pred or pred[2] != "open":
+        await interaction.followup.send("Prediction not found or already settled.", ephemeral=True)
+        return
+    if pred[0] != interaction.user.id:
+        await interaction.followup.send("Only the creator can settle this prediction.", ephemeral=True)
+        return
+    options = pred[1].split(",")
+    if not (1 <= winning_option <= len(options)):
+        await interaction.followup.send("Invalid winning option.", ephemeral=True)
+        return
+    cursor.execute("UPDATE predictions SET status = 'closed' WHERE id = ?", (prediction_id,))
+    cursor.execute("SELECT user_id, token, amount, wallet FROM wagers WHERE prediction_id = ? AND option = ?", (prediction_id, winning_option))
+    winners = cursor.fetchall()
+    total_wagered = sum(w[2] for w in winners)
+    if total_wagered == 0:
+        await interaction.followup.send("No winners to payout.", ephemeral=True)
+        return
+    for winner in winners:
+        payout = winner[2] * 2  # Simple 2x payout example
+        tx_data = await bot.adaptx.prepare_transaction(str(bot.adaptx.bot_pubkey), payout, winner[1], winner[3])
+        tx = Transaction.deserialize(base58.b58decode(tx_data['serialized_tx']))
+        tx.sign(bot.adaptx.bot_keypair)
+        tx_sig = await bot.adaptx.solana_client.send_transaction(tx, opts=Confirmed)
+        cursor.execute(
+            "INSERT INTO payouts (user_id, prediction_id, token, amount, tx_id) VALUES (?, ?, ?, ?, ?)",
+            (winner[0], prediction_id, winner[1], payout, str(tx_sig.value))
+        )
+    bot.db.commit()
+    await interaction.followup.send(f"Prediction #{prediction_id} settled. Option {winning_option} wins! Payouts sent.")
+
+# Enhanced New Features
+@bot.tree.command(name="networkanalytics", description="Show recent network TPS trends")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def networkanalytics(interaction: discord.Interaction):
+    await interaction.response.defer()
+    if not network_stats_history:
+        await interaction.followup.send("No network stats available yet.")
+        return
+    tps_values = [entry["tps"] for entry in network_stats_history if entry["tps"] > 0]
+    if not tps_values:
+        await interaction.followup.send("Network stats not available.")
+        return
+    avg_tps = sum(tps_values) / len(tps_values)
+    min_tps = min(tps_values)
+    max_tps = max(tps_values)
+    await interaction.followup.send(
+        f"**Network Analytics (last 10 minutes):**\n"
+        f"• Average TPS: {avg_tps:.2f}\n"
+        f"• Minimum TPS: {min_tps:.2f}\n"
+        f"• Maximum TPS: {max_tps:.2f}"
+    )
+
+@bot.tree.command(name="walletrealtime", description="Subscribe to real-time updates for a wallet")
+@app_commands.describe(wallet_address="The wallet address to monitor")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def walletrealtime(interaction: discord.Interaction, wallet_address: str):
+    await interaction.response.defer()
+    if not is_valid_solana_address(wallet_address):
+        await interaction.followup.send("Invalid wallet address.", ephemeral=True)
+        return
+    user_id = interaction.user.id
+    realtime_wallet_subscriptions.setdefault(user_id, [])
+    if wallet_address in realtime_wallet_subscriptions[user_id]:
+        await interaction.followup.send("You are already subscribed to this wallet.")
+    else:
+        realtime_wallet_subscriptions[user_id].append(wallet_address)
+        await interaction.followup.send(f"Subscribed to real-time updates for wallet `{wallet_address}`. You will receive DM notifications.")
+
+@bot.tree.command(name="marketupdate", description="Get a narrative market update")
+@commands.cooldown(1, 120, commands.BucketType.user)
+async def marketupdate(interaction: discord.Interaction):
+    await interaction.response.defer()
+    price_info = await bot.adaptx.get_crypto_price_coingecko("solana")
+    network_stats = await bot.adaptx.get_solana_network_stats()
+    trending = await bot.adaptx.get_trending_tokens()
+    prompt = (
+        f"Using the following data:\n"
+        f"{price_info}\n"
+        f"{network_stats}\n"
+        f"Trending tokens: {trending}\n\n"
+        f"Generate an engaging market update summary for Solana."
+    )
+    update = await mistral_client.generate_text(prompt, max_tokens=200)
+    await interaction.followup.send(f"**Market Update:**\n{update}")
+
+@bot.tree.command(name="solanainsights", description="Get insights on staking and validator performance")
+@commands.cooldown(1, 120, commands.BucketType.user)
+async def solanainsights(interaction: discord.Interaction):
+    await interaction.response.defer()
+    top_validators = await bot.adaptx.get_top_validators()
+    staking_info = "For detailed staking analytics, use /stakinganalysis with your wallet."
+    prompt = (
+        f"Given the following validator data:\n{top_validators}\n"
+        f"And the following staking info:\n{staking_info}\n\n"
+        f"Provide a summary of the current state of Solana validators and staking rewards."
+    )
+    insights = await mistral_client.generate_text(prompt, max_tokens=200)
+    await interaction.followup.send(f"**Solana Insights:**\n{insights}")
+
+@bot.tree.command(name="userfeedback", description="Submit feedback for the bot")
+@app_commands.describe(feedback="Your feedback message")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def userfeedback(interaction: discord.Interaction, feedback: str):
+    await interaction.response.defer()
+    cursor = bot.db.cursor()
+    cursor.execute("INSERT INTO feedback (user_id, feedback, timestamp) VALUES (?, ?, ?)",
+                   (interaction.user.id, feedback, datetime.utcnow().timestamp()))
+    bot.db.commit()
+    prompt = f"User {interaction.user} submitted the following feedback: '{feedback}'. Generate a friendly thank-you note."
+    thank_you = await mistral_client.generate_text(prompt, max_tokens=50)
+    await interaction.followup.send(f"Feedback received. {thank_you}")
+
+# Additional New Features
+@bot.tree.command(name="cryptohistory", description="Get historical price data for a cryptocurrency")
+@app_commands.describe(crypto="Cryptocurrency symbol", days="Number of days of history")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def cryptohistory(interaction: discord.Interaction, crypto: str, days: int):
+    await interaction.response.defer()
+    url = f"https://api.coingecko.com/api/v3/coins/{crypto.lower()}/market_chart?vs_currency=usd&days={days}"
+    try:
+        async with bot.adaptx.session.get(url, timeout=10) as response:
+            data = await response.json()
+            prices = data.get("prices", [])
+            if not prices:
+                await interaction.followup.send("No historical data found.")
+                return
+            first_price = prices[0][1]
+            last_price = prices[-1][1]
+            await interaction.followup.send(
+                f"**Historical Prices for {crypto.upper()}**\n"
+                f"Over the last {days} days:\n"
+                f"• Start Price: ${first_price:,.2f}\n"
+                f"• Latest Price: ${last_price:,.2f}"
+            )
+    except Exception as e:
+        logger.error(f"Error fetching historical prices: {e}")
+        await interaction.followup.send("Error fetching historical prices.", ephemeral=True)
+
+@bot.tree.command(name="nftdetails", description="Get detailed metadata for a specific NFT")
+@app_commands.describe(nft_mint="The NFT's mint address")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def nftdetails(interaction: discord.Interaction, nft_mint: str):
+    await interaction.response.defer()
+    if not is_valid_solana_address(nft_mint):
+        await interaction.followup.send("Invalid NFT mint address.", ephemeral=True)
+        return
+    url = f"https://api.helius.xyz/v0/tokens/{nft_mint}/metadata?api-key={HELIUS_API_KEY}"
+    try:
+        async with bot.adaptx.session.get(url, timeout=10) as response:
+            data = await response.json()
+            if 'metadata' in data:
+                metadata = data['metadata']
+                await interaction.followup.send(
+                    f"**NFT Details for `{nft_mint}`**\n"
+                    f"• Name: {metadata.get('name', 'N/A')}\n"
+                    f"• Symbol: {metadata.get('symbol', 'N/A')}\n"
+                    f"• Description: {metadata.get('description', 'N/A')}\n"
+                    f"• URI: {metadata.get('uri', 'N/A')}"
+                )
+            else:
+                await interaction.followup.send("No metadata found for this NFT.", ephemeral=True)
+    except Exception as e:
+        logger.error(f"Error fetching NFT details: {e}")
+        await interaction.followup.send("Error fetching NFT details.", ephemeral=True)
+
+@bot.tree.command(name="validatorsearch", description="Search validators with commission below a threshold")
+@app_commands.describe(max_commission="Maximum commission percentage")
+@commands.cooldown(1, 60, commands.BucketType.user)
+async def validatorsearch(interaction: discord.Interaction, max_commission: int):
+    await interaction.response.defer()
+    try:
+        vote_accounts = await bot.adaptx.solana_client.get_vote_accounts()
+        matching = [f"{str(v.vote_pubkey)[:8]}... - Commission: {v.commission}%" for v in vote_accounts.value.current if v.commission <= max_commission]
+        if matching:
+            await interaction.followup.send("**Validators with commission <= {}%:**\n{}".format(max_commission, "\n".join(matching[:10])))
+        else:
+            await interaction.followup.send("No validators found.", ephemeral=True)
+    except Exception as e:
+        logger.error(f"Error in validatorsearch: {e}")
+        await interaction.followup.send("Error searching validators.", ephemeral=True)
+
+@bot.tree.command(name="solanadashboard", description="Display a comprehensive Solana dashboard")
+@commands.cooldown(1, 120, commands.BucketType.user)
+async def solanadashboard(interaction: discord.Interaction):
+    await interaction.response.defer()
+    price_info = await bot.adaptx.get_crypto_price_coingecko("solana")
+    network_stats = await bot.adaptx.get_solana_network_stats()
+    trending = await bot.adaptx.get_trending_tokens()
+    top_validators = await bot.adaptx.get_top_validators()
+    embed = Embed(title="Solana Dashboard", color=0x00FF00)
+    embed.add_field(name="Price Info", value=price_info, inline=False)
+    embed.add_field(name="Network Stats", value=network_stats, inline=False)
+    embed.add_field(name="Trending Tokens", value=trending, inline=False)
+    embed.add_field(name="Top Validators", value=top_validators, inline=False)
+    await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="airdrop", description="Simulate an airdrop awarding points")
+@commands.cooldown(1, 120, commands.BucketType.user)
+async def airdrop(interaction: discord.Interaction):
+    await interaction.response.defer()
+    points_awarded = random.randint(10, 100)
+    cursor = bot.db.cursor()
+    cursor.execute("SELECT points FROM users WHERE id = ?", (interaction.user.id,))
+    result = cursor.fetchone()
+    if result:
+        new_points = result[0] + points_awarded
+        cursor.execute("UPDATE users SET points = ? WHERE id = ?", (new_points, interaction.user.id))
+    else:
+        new_points = points_awarded
+        cursor.execute("INSERT INTO users (id, points) VALUES (?, ?)", (interaction.user.id, new_points))
+    bot.db.commit()
+    await interaction.followup.send(f"Airdrop! You have been awarded {points_awarded} points. Total points: {new_points}.")
+
+# --- Main Entry Point ---
+
 async def main():
     async with aiohttp.ClientSession() as session:
         bot.adaptx = AdaptX(session)
         bot.db = sqlite3.connect('bot.db')
-        bot.db.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, points INTEGER DEFAULT 0, wallet TEXT, language TEXT DEFAULT "en")')
-        bot.db.execute('CREATE TABLE IF NOT EXISTS wallet_tracking (wallet_address TEXT, user_id INTEGER, channel_id INTEGER, last_analysis TEXT)')
-        bot.db.execute('CREATE TABLE IF NOT EXISTS alerts (user_id INTEGER, token TEXT, condition TEXT, value REAL)')
-        bot.db.execute('CREATE TABLE IF NOT EXISTS lottery (user_id INTEGER, token TEXT, amount REAL)')
+        bot.db.executescript('''
+            CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, points INTEGER DEFAULT 0, wallet TEXT);
+            CREATE TABLE IF NOT EXISTS wallet_tracking (wallet_address TEXT, user_id INTEGER, channel_id INTEGER, last_analysis TEXT);
+            CREATE TABLE IF NOT EXISTS alerts (user_id INTEGER, token TEXT, condition TEXT, value REAL);
+            CREATE TABLE IF NOT EXISTS lottery (user_id INTEGER, token TEXT, amount REAL);
+            CREATE TABLE IF NOT EXISTS predictions (id INTEGER PRIMARY KEY, title TEXT, creator_id INTEGER, creator_wallet TEXT, options TEXT, end_time REAL, status TEXT, image_url TEXT);
+            CREATE TABLE IF NOT EXISTS wagers (user_id INTEGER, prediction_id INTEGER, token TEXT, amount REAL, option INTEGER, wallet TEXT, tx_id TEXT);
+            CREATE TABLE IF NOT EXISTS payouts (user_id INTEGER, prediction_id INTEGER, token TEXT, amount REAL, tx_id TEXT);
+            CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, feedback TEXT, timestamp REAL);
+        ''')
         bot.db.commit()
-        await bot.add_cog(MultilangCog(bot))
+        collect_network_stats.start()
+        refresh_solana_stats.start()
+        check_wallet_updates.start()
+        check_price_alerts.start()
         await bot.start(TOKEN)
 
 if __name__ == "__main__":
